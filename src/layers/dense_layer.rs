@@ -182,6 +182,18 @@ impl DenseLayer {
             self.biases.values[node] *= (rng.gen::<f32>() - 0.5) * range + 1.0;
         }
     }
+
+    pub fn write_params_to_string(&self) -> String {
+        let mut output = "".to_string();
+        for i in 0..self.weights.values.len() {
+            output += &(self.weights.values[i].to_string()+" ");
+        }
+        output += "\n";
+        for i in 0..self.biases.values.len() {
+            output += &(self.biases.values[i].to_string()+" ");
+        }
+        output
+    }
 }
 
 impl Clone for DenseLayer {

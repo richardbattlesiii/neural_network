@@ -235,4 +235,13 @@ impl DenseNet {
         self.set_learning_rate(rose_decayed_learning_rate);
         rose_decayed_learning_rate
     }
+
+    pub fn write_net_params_to_string(&self) -> String {
+        let mut output = "".to_string();
+        for layer in 0..self.layers.len() {
+            output += &(self.layers[layer].write_params_to_string()+"\n");
+        }
+
+        output
+    }
 }

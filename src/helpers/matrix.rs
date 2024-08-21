@@ -3,6 +3,7 @@ use std::fmt;
 use rand::Rng;
 
 const STRASSEN_CUTOFF:usize = 64;
+//cost SIMD_LANES:usize = 64;
 
 #[derive(Default)]
 #[derive(Debug)]
@@ -82,11 +83,12 @@ impl Matrix {
 
     pub fn sub_matrix(&self, start_row: usize, start_col: usize, num_rows: usize, num_cols: usize) -> Matrix {
         // Check for valid dimensions
-        if (start_row + num_rows - 1)*self.cols + start_col + num_cols - 1 > self.values.len() {
-            //println!("{}", self);
-            panic!("Submatrix too big --\nShape: {}, len:{}, start row: {}, start col: {}, num rows: {}, num cols: {}.",
-                    self.get_shape(), self.values.len(), start_row, start_col, num_rows, num_cols);
-        }
+        // Actually don't bother, this is only used in strassen_recursive which has padded matrices
+        // if (start_row + num_rows - 1)*self.cols + start_col + num_cols - 1 > self.values.len() {
+        //     // println!("{}", self);
+        //     panic!("Submatrix too big --\nShape: {}, len:{}, start row: {}, start col: {}, num rows: {}, num cols: {}.",
+        //             self.get_shape(), self.values.len(), start_row, start_col, num_rows, num_cols);
+        // }
 
         // Initialize the sub-matrix
         let mut sub_values = Vec::with_capacity(num_rows*num_cols);
@@ -318,6 +320,47 @@ impl Matrix {
         }
     }
 
+    //I tried, but it ended up being slower on release builds than the regular naive multiply function.
+    // fn simd_multiply(&self, other: &Matrix) -> Matrix {
+    //     assert_eq!(self.cols, other.rows, "Matrix dimensions do not match for multiplication.");
+
+    //     let mut result = vec![0.0; self.rows * other.cols];
+
+    //     for row_num in 0..self.rows {
+    //         for col_num in 0..other.cols {
+    //             let mut sum = 0.0;
+
+    //             let mut index = 0;
+    //             while index + SIMD_LANES < self.cols {
+    //                 let row_start = row_num*self.cols;
+    //                 let row_end = row_start + SIMD_LANES;
+    //                 let row:Simd<f32, SIMD_LANES> = Simd::from_slice(&self.values[row_start..row_end]);
+
+    //                 let col_start = col_num + index * other.cols;
+    //                 let mut col = vec![0.0; SIMD_LANES];
+    //                 for (i, val) in col.iter_mut().enumerate() {
+    //                     *val = other.values[index + i * other.cols + col_num];
+    //                 }
+    //                 let col: Simd<f32, SIMD_LANES> = Simd::from_slice(&col);
+
+    //                 sum += row.mul(col).reduce_sum();
+    //                 index += SIMD_LANES;
+    //             }
+    //             while index < self.cols {
+    //                 sum += self.values[row_num*self.cols+index]*other.values[index*other.cols + col_num];
+    //                 index += 1;
+    //             }
+    //             result[row_num * other.cols + col_num] = sum;
+    //         }
+    //     }
+
+    //     Matrix {
+    //         values: result,
+    //         rows: self.rows,
+    //         cols: other.cols,
+    //     }
+    // }
+
     fn strassen_multiply(&self, other: &Matrix, max_dimension:usize) -> Matrix {
         if self.rows < 1 || self.cols < 1 || other.rows < 1 || other.cols < 1 {
             panic!("Tried to multiply 0-width matrices.");
@@ -378,8 +421,7 @@ impl Matrix {
         let c21 = p4.add(&p3);
         let c22 = p1.subtract(&p3).add(&p5).subtract(&p7);
 
-        let output = Matrix::merge(c11, c12, c21, c22);
-        output
+        Matrix::merge(c11, c12, c21, c22)
     }
 
     pub fn im_2_col(image: &Vec<Matrix>, kernel_rows: usize, kernel_cols: usize, stride: usize, padding: usize) -> Matrix {
