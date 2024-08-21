@@ -15,11 +15,11 @@ use std::thread;
 use rand::random;
 use std::f32::consts::PI;
 use std::time::{Instant, Duration};
-use flow::flow_ai::*;
+use flow::flow_ai::{convert, COLORS, SIZE};
 use helpers::{activation_functions, gpu_matrix, matrix};
 use layers::dense_layer::DenseLayer;
 use networks::dense_net::DenseNet;
-use matrix::*;
+use matrix::{Matrix, rand};
 
 const NEGATIVE_ONE_WRONG_PENALTY: f32 = 2.0;
 const EXPONENTIAL_PARAMETER: f32 = -0.01;
