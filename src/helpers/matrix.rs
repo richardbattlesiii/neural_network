@@ -83,12 +83,11 @@ impl Matrix {
 
     pub fn sub_matrix(&self, start_row: usize, start_col: usize, num_rows: usize, num_cols: usize) -> Matrix {
         // Check for valid dimensions
-        // Actually don't bother, this is only used in strassen_recursive which has padded matrices
-        // if (start_row + num_rows - 1)*self.cols + start_col + num_cols - 1 > self.values.len() {
-        //     // println!("{}", self);
-        //     panic!("Submatrix too big --\nShape: {}, len:{}, start row: {}, start col: {}, num rows: {}, num cols: {}.",
-        //             self.get_shape(), self.values.len(), start_row, start_col, num_rows, num_cols);
-        // }
+        if (start_row + num_rows - 1)*self.cols + start_col + num_cols - 1 > self.values.len() {
+            // println!("{}", self);
+            panic!("Submatrix too big --\nShape: {}, len:{}, start row: {}, start col: {}, num rows: {}, num cols: {}.",
+                    self.get_shape(), self.values.len(), start_row, start_col, num_rows, num_cols);
+        }
 
         // Initialize the sub-matrix
         let mut sub_values = Vec::with_capacity(num_rows*num_cols);
