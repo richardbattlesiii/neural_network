@@ -8,6 +8,7 @@ pub mod layers;
 pub mod flow;
 pub mod networks;
 
+use core::num;
 use std::fs::File;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
@@ -30,15 +31,6 @@ use matrix::{Matrix, rand};
 const NEGATIVE_ONE_WRONG_PENALTY: f32 = 2.0;
 
 /**
-    Number of threads to use in genetic algorithm. Note that my cpu has 32 threads but that is... atypical.
-    So if you run this make sure you change this unless you also have a lot of cores.
-*/
-static NUM_THREADS:u32 = 12;
-
-///Number of iterations of the genetic algorithm.
-static NUM_TRIES:u32 = 1000;
-
-/**
     For genetic algorithm.
     Corresponds to the maximum percentage increase or decrease in each weight and bias.
     I think ideally you would have thread 0 (the one with no mutation) showing up and producing
@@ -46,40 +38,8 @@ static NUM_TRIES:u32 = 1000;
 */
 static THREAD_ITERATION_NOISE_RANGE:f32 = 0.4;
 
-/**
-    For genetic algorithm. How much should the number of epochs increase each generation?
-    If you're going through iterations quickly, I recommend either 0 or 1. If it's slow, then do whatever you want.
-    I'm not your dad.
-
-    Also, this is what makes the genetic algorithm have weird progress percentages. It can't be helped
-    (unless I decide to just round the percentages and lie to you in the process).
-*/
-static EPOCH_INCREASE:u32 = 1;
-
-///Max number of epochs.
-///Note that in the genetic algorithm, this is per generation.
-static MAX_EPOCHS:u32 = 10000000;
-
-///How many puzzles to test on.
-///Will panic if the total number of puzzles is above the number of lines in the input text file (see flow_ai).
-static NUM_TESTING_PUZZLES:usize = NUM_TRAINING_PUZZLES;
-
-///How many puzzles to train on.
-///Will panic if the total number of puzzles is above the number of lines in the input text file (see flow_ai).
-static NUM_TRAINING_PUZZLES:usize = 256;
-
 ///Size of the input and output layers. Should be PUZZLE_WIDTH squared until I switch to one-hot.
 const IO_SIZE:usize = PUZZLE_WIDTH*PUZZLE_WIDTH;
-
-///Number of layers, including input and output layers.
-///Number of dense layers will be this minus one.
-const NUMBER_OF_LAYERS:usize = 4;
-
-///The size of each layer. Has to be a const for ease of multithreading.
-const LAYER_SIZES: [usize; NUMBER_OF_LAYERS] = [IO_SIZE, 64, 64, IO_SIZE];
-
-///The activation function each layer should use. Has to be a const for ease of multithreading.
-const ACTIVATION_FUNCTIONS: [u8; NUMBER_OF_LAYERS-1] = [0, 0, 0];
 
 //Variables used in make_regular_dense_net for comparison:
 
@@ -106,10 +66,10 @@ const ROSE_DECAY_OSCILLATE_FOREVER: bool = true;
 
     Corresponds to the X in the formula.
 */
-const ROSE_DECAY_EXPONENTIAL_PARAMETER: f32 = -1.0/100.0;
+const ROSE_DECAY_EXPONENTIAL_PARAMETER: f32 = -1.0/50.0;
 //Corresponds to S in the formula.
 ///Frequency of oscillations (times tau (which is 2*pi)).
-const ROSE_DECAY_OSCILLATION_PARAMETER: f32 = TAU/200.0;
+const ROSE_DECAY_OSCILLATION_PARAMETER: f32 = TAU/100.0;
 //Corresponds to o in the formula.
 ///How big the oscillations are.
 const ROSE_DECAY_OSCILLATION_COEFFICIENT: f32 = 0.5;
@@ -140,24 +100,93 @@ const OSCILLATION_PARAMETER_THREE: f32 = -0.01;
 
 ///Just a static learning rate.
 const STATIC_LEARNING_RATE: u8 = 3;
+const STATIC_LEARNING_RATE_AMOUNT: f32 = 0.1;
+
+/**
+    Number of threads to use in genetic algorithm. Note that my cpu has 32 threads but that is... atypical.
+    So if you run this make sure you change this unless you also have a lot of cores.
+*/
+static NUM_THREADS:u32 = 12;
+
+///Number of layers, including input and output layers.
+///Number of dense layers will be this minus one.
+const NUMBER_OF_LAYERS:usize = 3;
+
+///The size of each layer. Has to be a const for ease of multithreading.
+const LAYER_SIZES: [usize; NUMBER_OF_LAYERS] = [IO_SIZE, 2, IO_SIZE];
+
+///The activation function each layer should use. Has to be a const for ease of multithreading.
+const ACTIVATION_FUNCTIONS: [u8; NUMBER_OF_LAYERS-1] = [0, 0];
+
+///Number of iterations of the genetic algorithm.
+static NUM_TRIES:u32 = 1000;
 
 /**
     Printing interval -- number of epochs between status updates.
     Not used in genetic algorithm.
 */
-const PRINTERVAL:u32 = 100;
+const PRINTERVAL:u32 = 1;
+
+/**
+    For genetic algorithm. How much should the number of epochs increase each generation?
+    If you're going through iterations quickly, I recommend either 0 or 1. If it's slow, then do whatever you want.
+    I'm not your dad.
+
+    Also, this is what makes the genetic algorithm have weird progress percentages. It can't be helped
+    (unless I decide to just round the percentages and lie to you in the process).
+*/
+static EPOCH_INCREASE:u32 = 1;
+
+///Max number of epochs.
+///Note that in the genetic algorithm, this is per generation.
+static MAX_EPOCHS:u32 = 10000000;
+
+///How many puzzles to train on.
+///Will panic if the total number of puzzles is above the number of lines in the input text file (see flow_ai).
+static NUM_TRAINING_PUZZLES:usize = 1900;
+
+///How many puzzles to test on.
+///Will panic if the total number of puzzles is above the number of lines in the input text file (see flow_ai).
+static NUM_TESTING_PUZZLES:usize = 128;
 
 ///How many times the genetic algorithm should print a progress update each generation.
 const NUM_PRINTS_PER_GENERATION:u32 = 5;
 
 fn main() {
-    make_regular_dense_net(0);
+    make_regular_dense_net(ROSE_DECAY_LEARNING_RATE, (0.0,0.0,0.0));
+    // let best_ever_loss = f32::MAX;
+    // let best_learning_rate = -1.0;
+    // // let mut handles = vec![];
+    // for i in 1..NUM_TRIES {
+    //     // handles.push(thread::spawn(move || {
+    //         let current_learning_rate = interpolate_by_halves(i);
+    //         println!("Trying learning rate of {}", current_learning_rate);
+    //         let mut best_current_loss = f32::MAX;
+    //         for j in 0..10 {
+    //             let current_loss = make_regular_dense_net(STATIC_LEARNING_RATE, (current_learning_rate, 0.0, 0.0));
+    //             if current_loss < best_current_loss {
+    //                 best_current_loss = current_loss;
+    //             }
+    //         }
+    //         println!("Loss was {}", best_current_loss);
+    //         if best_current_loss < best_ever_loss {
+    //             println!("New best!");
+
+    //         }
+    //     //     } ));
+        
+    //     // if i >= NUM_THREADS {
+    //     //     for handle in handles.drain(..NUM_THREADS as usize) {
+    //     //         handle.join().unwrap();
+    //     //     }
+    //     // }
+    // }
     //genetic_algorithm();
 }
 
 ///Make a DenseNet with the specified learning rate change method -- 
 //Rose Decay, exponential decay, oscillation, static. Panics if invalid.
-fn make_regular_dense_net(learning_rate_change_method: u8) {
+fn make_regular_dense_net(learning_rate_change_method: u8, parameters: (f32, f32, f32)) -> f32 {
     //Get a Matrix for the puzzles and their solutions.
     //Shape is [number of puzzles X IO_SIZE]
     let (puzzles, solutions) = convert().unwrap();
@@ -166,7 +195,11 @@ fn make_regular_dense_net(learning_rate_change_method: u8) {
     let training_puzzles = puzzles.sub_matrix(0, 0, NUM_TRAINING_PUZZLES, IO_SIZE);
     let training_solutions = solutions.sub_matrix(0, 0, NUM_TRAINING_PUZZLES, IO_SIZE);
 
-    //Note that the testing puzzles start after
+    //Note that the testing puzzles start after, and panic if there are too many
+    if NUM_TESTING_PUZZLES+NUM_TRAINING_PUZZLES > puzzles.rows {
+        panic!("Too many training ({}) and testing ({}) puzzles ({} total) for the amount in the text file ({}).",
+                NUM_TRAINING_PUZZLES, NUM_TESTING_PUZZLES, NUM_TRAINING_PUZZLES+NUM_TESTING_PUZZLES, puzzles.rows);
+    }
     let testing_puzzles = puzzles.sub_matrix(NUM_TRAINING_PUZZLES, 0, NUM_TESTING_PUZZLES, IO_SIZE);
     let testing_solutions = solutions.sub_matrix(NUM_TRAINING_PUZZLES, 0, NUM_TESTING_PUZZLES, IO_SIZE);
 
@@ -177,27 +210,7 @@ fn make_regular_dense_net(learning_rate_change_method: u8) {
     // //Start measuring the time.
     // let start = Instant::now();
     
-    for epoch in 0..MAX_EPOCHS {
-        //Train the net.
-        dn.batch_backpropagate(&training_puzzles, &training_solutions);
-        
-        //Sleep so that the threads always print in the same order.
-        std::thread::sleep(Duration::from_secs_f32(learning_rate_change_method as f32));
-
-        //Print the progress, finding the MSE of predictions on the test puzzles
-        if epoch % PRINTERVAL == 0 {
-            let mut average_loss: f32 = 0.0;
-            for row in 0..NUM_TESTING_PUZZLES {
-                let puzzle = testing_puzzles.sub_matrix(row, 0, 1, IO_SIZE);
-                let prediction = dn.predict(&puzzle);
-                let solution = testing_solutions.sub_matrix(row, 0, 1, IO_SIZE);
-                average_loss += DenseNet::calculate_mse_loss(&prediction, &solution);
-            }
-            average_loss /= NUM_TESTING_PUZZLES as f32;
-            println!("Change method: {}, Epoch: {}, Average Loss: {}", learning_rate_change_method, epoch, average_loss);
-            //test_net(&dn, &testing_puzzles, &testing_solutions);
-        }
-
+    for epoch in 0..MAX_EPOCHS+1 {
         //Use the specified learning rate change method to update the learning rate, and print out what it is.
         let learning_rate;
         match learning_rate_change_method {
@@ -212,28 +225,41 @@ fn make_regular_dense_net(learning_rate_change_method: u8) {
             },
             EXPONENTIALLY_DECAY_LEARNING_RATE => {
                 learning_rate = dn.exponentially_decay_learning_rate(epoch,
-                        EXPONENTIAL_DECAY_PARAMETER_ONE, EXPONENTIAL_DECAY_PARAMETER_TWO,
-                        EXPONENTIAL_DECAY_PARAMETER_THREE);
+                        parameters.0, parameters.1, parameters.2);
                 if epoch % PRINTERVAL == 0 {   
                     println!("\tLearning rate for exponential decay is {}.", learning_rate);
                 }
             },
             OSCILLATE_LEARNING_RATE => {
                 learning_rate = dn.oscillate_learning_rate(epoch,
-                        OSCILLATION_PARAMETER_ONE, OSCILLATION_PARAMETER_TWO,
-                        OSCILLATION_PARAMETER_THREE);
+                    parameters.0, parameters.1, parameters.2);
                 if epoch % PRINTERVAL == 0 {
                     println!("\tLearning rate for oscillation is {}.", learning_rate);
                 }
             },
             STATIC_LEARNING_RATE => {
-                //do nothing lol
+                dn.set_learning_rate(parameters.0);
             },
             default => panic!("Invalid learning rate change method."),
         }
 
+        //Train the net.
+        let training_loss = dn.batch_backpropagate(&training_puzzles, &training_solutions);
+        
+        //Sleep so that the threads always print in the same order.
+        //std::thread::sleep(Duration::from_secs_f32(learning_rate_change_method as f32));
+
+        //Print the progress, finding the MSE of predictions on the test puzzles
+        if epoch % PRINTERVAL == 0 {
+            let average_loss = test_net(&dn, &testing_puzzles, &testing_solutions);
+            println!("Change method: {}, Epoch: {}, Testing Loss: {}, Training Loss: {}", learning_rate_change_method, epoch, average_loss, training_loss);
+            //test_net_specific(&dn, &testing_puzzles, &testing_solutions);
+        }
+
         
     }
+
+    test_net(&dn, &testing_puzzles, &testing_solutions)
     // //Print how long it took.
     // let duration = start.elapsed().as_millis();
     // println!("Finished in {}ms.", duration);
@@ -309,18 +335,8 @@ fn genetic_algorithm() {
                 let test_solutions = puzzle_tuple_thread.1.sub_matrix(NUM_TRAINING_PUZZLES, 0, NUM_TESTING_PUZZLES, IO_SIZE);
                 drop(puzzle_tuple_thread);
                 
-                //Test the net, keeping a running total amount of loss
-                let mut final_loss = 0.0;
-                for test_puzzle_num in 0..NUM_TESTING_PUZZLES {
-                    let test_puzzle = test_puzzles.sub_matrix(test_puzzle_num, 0, 1, IO_SIZE);
-                    let test_prediction = dn.predict(&test_puzzle);
-                    let test_solution = test_solutions.sub_matrix(test_puzzle_num, 0, 1, IO_SIZE);
-                    //Change this to BCE once using one-hot encoding
-                    let loss = DenseNet::calculate_mse_loss(&test_prediction, &test_solution);
-                    final_loss += loss;
-                }
-                //Now take the average
-                final_loss /= NUM_TESTING_PUZZLES as f32;
+                //Test the net and find the average loss over the testing puzzles
+                let final_loss = test_net(&dn, &test_puzzles, &test_solutions);
                 //Means "variable named 'best' but for this thread" not "the thread that is the best"
                 let mut best_thread = best.lock().unwrap();
                 //Check if this thread did a better job, if so, update best and print the results.
@@ -349,7 +365,7 @@ fn genetic_algorithm() {
             current_best = best_main.1;
             let puzzle_tuple = puzzle_tuple_original.lock().unwrap();
 
-            test_net(&best_main.0, &puzzle_tuple.0, &puzzle_tuple.1);
+            test_net_specific(&best_main.0, &puzzle_tuple.0, &puzzle_tuple.1);
 
             //Keep track of the parameters in a file for later, in case something goes wrong during training.
             //(or more likely I get impatient or want to use my whole CPU again so I press Ctrl-C)
@@ -390,7 +406,11 @@ fn genetic_algorithm() {
     // // println!("Time elapsed: {} ms", duration.as_millis());
 }
 
-fn test_net(dn: &DenseNet, puzzles: &Matrix, solutions: &Matrix) {
+fn test_net(dn: &DenseNet, testing_puzzles: &Matrix, testing_solutions: &Matrix) -> f32 {
+    DenseNet::calculate_mse_loss(&dn.predict(testing_puzzles), testing_solutions)
+}
+
+fn test_net_specific(dn: &DenseNet, puzzles: &Matrix, solutions: &Matrix) {
     //Get a random test puzzle and make a prediction on it.
     let randy:f32 = random();
     let puzzle_num = (randy*(puzzles.rows as f32)) as usize;
@@ -404,4 +424,30 @@ fn test_net(dn: &DenseNet, puzzles: &Matrix, solutions: &Matrix) {
     //Print out the solution vs the prediction of the puzzle,
     //to see how good (or more likely bad) the net really is at Flow Free.
     println!("\n{}\n{}", solution, prediction);
+}
+
+/**
+    I don't really know how to describe what this is, but I want a sequence that
+    successively "scans" between 0 and 1 with increasing resolution, meaning
+    it starts at 1/2, then 1/4, then 3/4, then 1/8, 3/8, 5/8, 7/8, 1/16, etc.
+*/
+fn interpolate_by_halves(iterations: u32) -> f32 {
+    //Initialize the count and the current denominator (power of 2)
+    let mut count = 0;
+    let mut n = 1.0;
+
+    //Loop until we reach the iterations-th element in the sequence
+    while count < iterations {
+        //Iterate over all odd numerators for the current denominator
+        for numerator in (1..(2 * n as usize)).step_by(2) {
+            count += 1;
+            if count == iterations {
+                return numerator as f32 / 2.0 / n; //Return the fraction
+            }
+        }
+        n *= 2.0; //Move to the next power of 2
+    }
+
+    //In case input is invalid (shouldn't happen with proper input)
+    0.0
 }

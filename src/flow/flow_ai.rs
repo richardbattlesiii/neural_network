@@ -8,7 +8,7 @@ pub const COLORS: usize = 80;
 pub const KEY: &str = "-0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ`~!@#$%^&*()=+;':\"[]\\{}|";
 pub fn convert() -> io::Result<(Matrix, Matrix)> {
     // Open the file in read-only mode
-    let mut file = File::open("512 16x16.txt")?;
+    let mut file = File::open("2048 16x16.txt")?;
 
     // Create a String to hold the file contents
     let mut contents = String::new();
