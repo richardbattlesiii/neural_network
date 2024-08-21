@@ -2,6 +2,7 @@
 #![allow(unused_variables)]
 #![allow(unused_imports)]
 #![allow(unreachable_code)]
+#![feature(portable_simd)]
 pub mod helpers;
 pub mod layers;
 pub mod flow;
@@ -32,9 +33,9 @@ static EPOCH_INCREASE:u32 = 1;
 static HIGH_LEARNING_RATE:f32 = 0.3;
 static LOW_LEARNING_RATE:f32 = 0.1;
 static MAX_EPOCHS:u32 = 100;
-static NUM_TESTING_PUZZLES:usize = 128;
-static NUM_TRAINING_PUZZLES:usize = 256;
-static PRINTERVAL:u32 = 10;
+static NUM_TESTING_PUZZLES:usize = 64;
+static NUM_TRAINING_PUZZLES:usize = 64;
+static PRINTERVAL:u32 = 1;
 
 const IO_SIZE:usize = SIZE*SIZE;
 const NUMBER_OF_LAYERS:usize = 5;
@@ -42,7 +43,32 @@ const LAYER_SIZES: [usize; NUMBER_OF_LAYERS] = [IO_SIZE, 6, 6, 6, IO_SIZE];
 const ACTIVATION_FUNCTIONS: [u8; NUMBER_OF_LAYERS-1] = [0, 0, 0, 0];
 
 fn main() {
-    make_regular_dense_net();
+    let mut a = matrix::rand(50000,50000,10.0);
+    let b = 420.69;
+
+    println!("Starting naive...");
+    let start1 = Instant::now();
+    let naive = a.add_scalar(b);
+    let duration1 = start1.elapsed().as_millis();
+    println!("Starting simd...");
+    let start2 = Instant::now();
+    let simd = naive.simd_add_scalar(b);
+    let duration2 = start2.elapsed().as_millis();
+
+    // for row in 0..rows {
+    //     for col in 0..cols {
+    //         print!("{}\t", naive.values[row*cols + col] - simd.values[row*cols + col]);
+    //     }
+    //     println!();
+    // }
+    println!("Times: naive took {}ms and simd took {}ms.", duration1, duration2);
+    // if std::is_x86_feature_detected!("avx512fp16") {
+    //     println!("Supported!");
+    // }
+    // else {
+    //     println!("Not supported.");
+    // }
+    //make_regular_dense_net();
     //genetic_algorithm();
 }
 
