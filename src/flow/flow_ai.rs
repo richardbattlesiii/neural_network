@@ -32,7 +32,6 @@ pub fn convert() -> io::Result<(Matrix, Matrix)> {
         .map(|chunk| chunk.to_vec())
         .collect();
 
-    // Print the resulting Vec<Vec<i32>>
     let mut puzzles: Vec<f32> = vec![];
     let mut solutions: Vec<f32> = vec![];
     for row in (0..chunks.len()-1).step_by(2) {
@@ -46,13 +45,13 @@ pub fn convert() -> io::Result<(Matrix, Matrix)> {
     //println!("Chunks:\n{}", chunks.len());
     let puzzle_matrix = Matrix {
         values: puzzles,
-        rows: values.len()/(2*SIZE*SIZE),
+        rows: values.len()/(SIZE*SIZE),
         cols: SIZE*SIZE
     };
 
     let solution_matrix = Matrix {
         values: solutions,
-        rows: values.len()/(2*SIZE*SIZE),
+        rows: values.len()/(SIZE*SIZE),
         cols: SIZE*SIZE
     };
     //println!("{}", solution_matrix);
