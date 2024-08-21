@@ -1,14 +1,12 @@
-#![allow(dead_code)]
 #![allow(unused_variables)]
 #![allow(unused_imports)]
-#![allow(unreachable_code)]
-#![feature(portable_simd)]
+#![allow(dead_code)]
+
 pub mod helpers;
 pub mod layers;
 pub mod flow;
 pub mod networks;
 
-use core::num;
 use std::fs::File;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
@@ -16,11 +14,10 @@ use std::thread;
 use rand::random;
 use std::f32::consts::TAU;
 use std::time::{Instant, Duration};
-use flow::flow_ai::{convert, COLORS, PUZZLE_WIDTH};
-use helpers::{activation_functions, gpu_matrix, matrix};
-use layers::dense_layer::DenseLayer;
+use flow::flow_ai::{convert, PUZZLE_WIDTH};
+use helpers::matrix;
 use networks::dense_net::DenseNet;
-use matrix::{Matrix, rand};
+use matrix::Matrix;
 
 /**
     Used in a custom loss derivative function.
@@ -119,7 +116,7 @@ const LAYER_SIZES: [usize; NUMBER_OF_LAYERS] = [IO_SIZE, 2, IO_SIZE];
 const ACTIVATION_FUNCTIONS: [u8; NUMBER_OF_LAYERS-1] = [0, 0];
 
 ///Number of iterations of the genetic algorithm.
-static NUM_TRIES:u32 = 1000;
+static NUM_TRIES:u32 = 1000000000;
 
 /**
     Printing interval -- number of epochs between status updates.
@@ -139,21 +136,21 @@ static EPOCH_INCREASE:u32 = 1;
 
 ///Max number of epochs.
 ///Note that in the genetic algorithm, this is per generation.
-static MAX_EPOCHS:u32 = 10000000;
+static MAX_EPOCHS:u32 = 100;
 
 ///How many puzzles to train on.
 ///Will panic if the total number of puzzles is above the number of lines in the input text file (see flow_ai).
-static NUM_TRAINING_PUZZLES:usize = 1900;
+static NUM_TRAINING_PUZZLES:usize = 1024;
 
 ///How many puzzles to test on.
 ///Will panic if the total number of puzzles is above the number of lines in the input text file (see flow_ai).
 static NUM_TESTING_PUZZLES:usize = 128;
 
 ///How many times the genetic algorithm should print a progress update each generation.
-const NUM_PRINTS_PER_GENERATION:u32 = 5;
+const NUM_PRINTS_PER_GENERATION:u32 = 10;
 
 fn main() {
-    make_regular_dense_net(ROSE_DECAY_LEARNING_RATE, (0.0,0.0,0.0));
+    //make_regular_dense_net(ROSE_DECAY_LEARNING_RATE, (0.0,0.0,0.0));
     // let best_ever_loss = f32::MAX;
     // let best_learning_rate = -1.0;
     // // let mut handles = vec![];
@@ -181,7 +178,7 @@ fn main() {
     //     //     }
     //     // }
     // }
-    //genetic_algorithm();
+    genetic_algorithm();
 }
 
 ///Make a DenseNet with the specified learning rate change method -- 
@@ -266,6 +263,8 @@ fn make_regular_dense_net(learning_rate_change_method: u8, parameters: (f32, f32
 }
 
 //Uses multiple threads, each training the same neural net but with noise added
+//NOTE: technically this involves "training" on the test set because of the way it selects the best network,
+//but it's so indirect that I simply do not care.
 fn genetic_algorithm() {
     //Get a matrix from flow_ai (using a pre-made text file from Java)
     //TODO: rewrite that functionality in Rust
@@ -365,7 +364,7 @@ fn genetic_algorithm() {
             current_best = best_main.1;
             let puzzle_tuple = puzzle_tuple_original.lock().unwrap();
 
-            test_net_specific(&best_main.0, &puzzle_tuple.0, &puzzle_tuple.1);
+            //test_net_specific(&best_main.0, &puzzle_tuple.0, &puzzle_tuple.1);
 
             //Keep track of the parameters in a file for later, in case something goes wrong during training.
             //(or more likely I get impatient or want to use my whole CPU again so I press Ctrl-C)

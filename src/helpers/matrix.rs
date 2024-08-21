@@ -1,4 +1,3 @@
-use core::num;
 use std::fmt;
 use rand::Rng;
 
@@ -16,8 +15,8 @@ pub struct Matrix {
 pub fn rand(rows:usize, cols:usize, max_value: f32) -> Matrix {
     let mut rng = rand::thread_rng();
     let mut output_values = Vec::with_capacity(rows*cols);
-    for row in 0..rows {
-        for col in 0..cols {
+    for _ in 0..rows {
+        for _ in 0..cols {
             output_values.push(rng.gen::<f32>()*max_value);
         }
     }
@@ -368,6 +367,19 @@ impl Matrix {
         while size < max_dimension {
             size <<= 1;
         }
+
+        //Check if each subdivision is zero to avoid unnecessary calculations with all zeros.
+        //Note that a and e cannot be zero with my usage, but they could be with generic matrices.
+        let b_nonzero = self.cols >= size/2;
+        let c_nonzero = self.rows >= size/2;
+        let d_nonzero = self.cols >= size/2 && self.rows >= size/2;
+        let matrix1_nonzeros = (b_nonzero, c_nonzero, d_nonzero);
+
+        let f_nonzero = other.cols >= size/2;
+        let g_nonzero = other.rows >= size/2;
+        let h_nonzero = other.cols >= size/2 && other.rows >= size/2;
+        let matrix2_nonzeros = (f_nonzero, g_nonzero, h_nonzero);
+
         //println!("Self: {}, other: {}, size: {}", self.get_shape(), other.get_shape(), size);
         let matrix1 = if std::cmp::min(self.rows, self.cols) < size {
             self.one_way_pad(size)
@@ -380,20 +392,63 @@ impl Matrix {
         } else {
             other.copy()
         };
-        matrix1.strassen_multiply_recursive(&matrix2).sub_matrix(0, 0, self.rows, other.cols)
+        matrix1.strassen_multiply_recursive(&matrix2, matrix1_nonzeros, matrix2_nonzeros).sub_matrix(0, 0, self.rows, other.cols)
     }
 
-    fn strassen_multiply_recursive(&self, other: &Matrix) -> Matrix {
+    fn strassen_multiply_recursive(&self, other: &Matrix, (b_nonzero, c_nonzero, d_nonzero): (bool, bool, bool), (f_nonzero, g_nonzero, h_nonzero): (bool, bool, bool)) -> Matrix {
         let half = self.rows/2;
-        let mut a = self.sub_matrix(0, 0,    half, half);
-        let mut b = self.sub_matrix(0, half, half, half);
-        let c = self.sub_matrix(half, 0,     half, half);
-        let d = self.sub_matrix(half, half,  half, half);
 
-        let mut e = other.sub_matrix(0, 0,   half, half);
-        let f = other.sub_matrix(0, half,half, half);
-        let mut g = other.sub_matrix(half, 0,half, half);
-        let h = other.sub_matrix(half, half, half, half);
+        let mut a = self.sub_matrix(0, 0, half, half);
+
+        let mut b;
+        if b_nonzero {
+            b = self.sub_matrix(0, half, half, half);
+        }
+        else {
+            b = zero_matrix(half, half);
+        }
+
+        let c;
+        if c_nonzero {
+            c = self.sub_matrix(half, 0, half, half);
+        }
+        else {
+            c = zero_matrix(half, half);
+        }
+
+        let d;
+        if d_nonzero {
+            d = self.sub_matrix(half, half, half, half);
+        }
+        else {
+            d = zero_matrix(half, half);
+        }
+
+        let mut e = other.sub_matrix(0, 0, half, half);
+
+        let f;
+        if f_nonzero {
+            f = other.sub_matrix(0, half, half, half);
+        }
+        else {
+            f = zero_matrix(half, half);
+        }
+
+        let mut g;
+        if g_nonzero {
+            g = other.sub_matrix(half, 0, half, half);
+        }
+        else {
+            g = zero_matrix(half, half);
+        }
+
+        let h;
+        if h_nonzero {
+            h = other.sub_matrix(half, half, half, half);
+        }
+        else {
+            h = zero_matrix(half, half);
+        }
 
         let mut temp1 = Matrix{
             values: vec![0.0; half*half],
@@ -410,9 +465,22 @@ impl Matrix {
         let mut p1 = a.switch_multiply(f.copy_to(&mut temp1).subtract(&h), method);
         let mut p2 = a.copy_to(&mut temp1).add(&b).switch_multiply(&h, method);
         let p3 = c.copy_to(&mut temp1).add(&d).switch_multiply(&e, method);
-        let mut p4 = d.switch_multiply(g.copy_to(&mut temp1).subtract(&e), method);
+        let mut p4;
+        if d_nonzero && g_nonzero {
+            p4 = d.switch_multiply(g.copy_to(&mut temp1).subtract(&e), method);
+        }
+        else {
+            p4 = e.copy();
+            p4.multiply_scalar(-1.0);
+        }
         let p5 = a.copy_to(&mut temp1).add(&d).switch_multiply(e.copy_to(&mut temp2).add(&h), method);
-        let mut p6 = b.subtract(&d).switch_multiply(g.add(&h), method);
+        let mut p6;
+        if (b_nonzero || d_nonzero) && (g_nonzero || h_nonzero) {
+            p6 = b.subtract(&d).switch_multiply(g.add(&h), method);
+        }
+        else {
+            p6 = zero_matrix(half, half);
+        }
         let p7 = a.subtract(&c).switch_multiply(e.add(&f), method);
 
         let c11 = p6.subtract(&p2).add(&p4).add(&p5);
@@ -459,6 +527,14 @@ impl Matrix {
         }
 
         column_matrix.transpose()
+    }
+}
+
+pub fn zero_matrix(rows: usize, cols: usize) -> Matrix {
+    Matrix {
+        values: vec![0.0; rows*cols],
+        rows,
+        cols
     }
 }
 

@@ -1,5 +1,4 @@
 use std::any::TypeId;
-use std::io::repeat;
 
 use crate::helpers::matrix::Matrix;
 use crate::helpers::activation_functions::*;
@@ -48,7 +47,7 @@ impl Layer<Matrix, Matrix> for DenseLayer {
                     OutputTypeEnum::Single(product)
                 }
             }
-            InputTypeEnum::Batch(batch) => {
+            InputTypeEnum::Batch(_) => {
                 panic!("Gave a Vec<&Matrix> to a dense layer.");
             }
         }
@@ -105,17 +104,17 @@ impl Layer<Matrix, Matrix> for DenseLayer {
                         
                                 InputTypeEnum::Single(output)
                             }
-                            OutputTypeEnum::Batch(errors) => {
+                            OutputTypeEnum::Batch(_) => {
                                 panic!();
                             }
                         }
                     }
-                    OutputTypeEnum::Batch(my_outputs) => {
+                    OutputTypeEnum::Batch(_) => {
                         panic!();
                     }
                 }
             }
-            InputTypeEnum::Batch(inputs) => {
+            InputTypeEnum::Batch(_) => {
                 panic!();
             }
         }
