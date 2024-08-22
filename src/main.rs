@@ -8,16 +8,15 @@ pub mod flow;
 pub mod networks;
 
 use std::fs::File;
-use std::io::Write;
+use std::io::{IoSlice, Write};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use rand::random;
 use std::f32::consts::TAU;
 use std::time::{Instant, Duration};
 use flow::flow_ai::{convert, PUZZLE_WIDTH};
-use helpers::matrix;
+use ndarray::{Array2, s};
 use networks::dense_net::DenseNet;
-use matrix::Matrix;
 
 /**
     Used in a custom loss derivative function.
@@ -97,7 +96,7 @@ const OSCILLATION_PARAMETER_THREE: f32 = -0.01;
 
 ///Just a static learning rate.
 const STATIC_LEARNING_RATE: u8 = 3;
-const STATIC_LEARNING_RATE_AMOUNT: f32 = 0.1;
+const STATIC_LEARNING_RATE_AMOUNT: f32 = 0.01;
 
 /**
     Number of threads to use in genetic algorithm. Note that my cpu has 32 threads but that is... atypical.
@@ -140,17 +139,19 @@ static MAX_EPOCHS:u32 = 100;
 
 ///How many puzzles to train on.
 ///Will panic if the total number of puzzles is above the number of lines in the input text file (see flow_ai).
-static NUM_TRAINING_PUZZLES:usize = 1024;
+static NUM_TRAINING_PUZZLES:usize = 128;
 
 ///How many puzzles to test on.
 ///Will panic if the total number of puzzles is above the number of lines in the input text file (see flow_ai).
-static NUM_TESTING_PUZZLES:usize = 128;
+static NUM_TESTING_PUZZLES:usize = 1024;
 
 ///How many times the genetic algorithm should print a progress update each generation.
 const NUM_PRINTS_PER_GENERATION:u32 = 10;
 
 fn main() {
-    //make_regular_dense_net(ROSE_DECAY_LEARNING_RATE, (0.0,0.0,0.0));
+    make_regular_dense_net(STATIC_LEARNING_RATE, (STATIC_LEARNING_RATE_AMOUNT,0.0,0.0));
+    //genetic_algorithm();
+
     // let best_ever_loss = f32::MAX;
     // let best_learning_rate = -1.0;
     // // let mut handles = vec![];
@@ -178,7 +179,6 @@ fn main() {
     //     //     }
     //     // }
     // }
-    genetic_algorithm();
 }
 
 ///Make a DenseNet with the specified learning rate change method -- 
@@ -189,16 +189,15 @@ fn make_regular_dense_net(learning_rate_change_method: u8, parameters: (f32, f32
     let (puzzles, solutions) = convert().unwrap();
 
     //Separate the training and testing puzzles.
-    let training_puzzles = puzzles.sub_matrix(0, 0, NUM_TRAINING_PUZZLES, IO_SIZE);
-    let training_solutions = solutions.sub_matrix(0, 0, NUM_TRAINING_PUZZLES, IO_SIZE);
-
+    let training_puzzles = puzzles.slice(s![0..NUM_TRAINING_PUZZLES, 0..IO_SIZE]).to_owned();
+    let training_solutions = solutions.slice(s![0..NUM_TRAINING_PUZZLES, 0..IO_SIZE]).to_owned();
     //Note that the testing puzzles start after, and panic if there are too many
-    if NUM_TESTING_PUZZLES+NUM_TRAINING_PUZZLES > puzzles.rows {
+    if NUM_TESTING_PUZZLES+NUM_TRAINING_PUZZLES > puzzles.nrows() {
         panic!("Too many training ({}) and testing ({}) puzzles ({} total) for the amount in the text file ({}).",
-                NUM_TRAINING_PUZZLES, NUM_TESTING_PUZZLES, NUM_TRAINING_PUZZLES+NUM_TESTING_PUZZLES, puzzles.rows);
+                NUM_TRAINING_PUZZLES, NUM_TESTING_PUZZLES, NUM_TRAINING_PUZZLES+NUM_TESTING_PUZZLES, puzzles.nrows());
     }
-    let testing_puzzles = puzzles.sub_matrix(NUM_TRAINING_PUZZLES, 0, NUM_TESTING_PUZZLES, IO_SIZE);
-    let testing_solutions = solutions.sub_matrix(NUM_TRAINING_PUZZLES, 0, NUM_TESTING_PUZZLES, IO_SIZE);
+    let testing_puzzles = puzzles.slice(s![NUM_TRAINING_PUZZLES..NUM_TRAINING_PUZZLES+NUM_TESTING_PUZZLES, 0..IO_SIZE]).to_owned();
+    let testing_solutions = solutions.slice(s![NUM_TRAINING_PUZZLES..NUM_TRAINING_PUZZLES+NUM_TESTING_PUZZLES, 0..IO_SIZE]).to_owned();
 
     //Make a DenseNet with the constant layer sizes & activation functions.
     let mut dn = DenseNet::new_with_arrays(&LAYER_SIZES, &ACTIVATION_FUNCTIONS);
@@ -241,7 +240,7 @@ fn make_regular_dense_net(learning_rate_change_method: u8, parameters: (f32, f32
         }
 
         //Train the net.
-        let training_loss = dn.batch_backpropagate(&training_puzzles, &training_solutions);
+        let training_loss = dn.backpropagate(&training_puzzles, &training_solutions);
         
         //Sleep so that the threads always print in the same order.
         //std::thread::sleep(Duration::from_secs_f32(learning_rate_change_method as f32));
@@ -294,8 +293,8 @@ fn genetic_algorithm() {
                 let puzzle_tuple_thread = puzzle_tuple.lock().unwrap();
 
                 //Get the training puzzles & their solutions from the master tuple
-                let puzzles = puzzle_tuple_thread.0.sub_matrix(0, 0, NUM_TRAINING_PUZZLES, IO_SIZE);
-                let solutions = puzzle_tuple_thread.1.sub_matrix(0, 0, NUM_TRAINING_PUZZLES, IO_SIZE);
+                let puzzles = puzzle_tuple_thread.0.slice(s![0..NUM_TRAINING_PUZZLES, 0..IO_SIZE]).to_owned();
+                let solutions = puzzle_tuple_thread.1.slice(s![0..NUM_TRAINING_PUZZLES, 0..IO_SIZE]).to_owned();
                 //Don't need that any more
                 drop(puzzle_tuple_thread);
 
@@ -325,13 +324,13 @@ fn genetic_algorithm() {
                             == 0 {
                         println!("\t{}%...", epoch*100/(MAX_EPOCHS+EPOCH_INCREASE*i));
                     }
-                    result = dn.batch_backpropagate(&puzzles, &solutions);
+                    result = dn.backpropagate(&puzzles, &solutions);
                 }
 
                 //Get the test puzzles, same as the training puzzles but starting after the index they ended
                 let puzzle_tuple_thread = puzzle_tuple.lock().unwrap();
-                let test_puzzles = puzzle_tuple_thread.0.sub_matrix(NUM_TRAINING_PUZZLES, 0, NUM_TESTING_PUZZLES, IO_SIZE);
-                let test_solutions = puzzle_tuple_thread.1.sub_matrix(NUM_TRAINING_PUZZLES, 0, NUM_TESTING_PUZZLES, IO_SIZE);
+                let test_puzzles = puzzle_tuple_thread.0.slice(s![NUM_TRAINING_PUZZLES..NUM_TRAINING_PUZZLES+NUM_TESTING_PUZZLES, 0..IO_SIZE]).to_owned();
+                let test_solutions = puzzle_tuple_thread.1.slice(s![NUM_TRAINING_PUZZLES..NUM_TRAINING_PUZZLES+NUM_TESTING_PUZZLES, 0..IO_SIZE]).to_owned();
                 drop(puzzle_tuple_thread);
                 
                 //Test the net and find the average loss over the testing puzzles
@@ -378,16 +377,16 @@ fn genetic_algorithm() {
     //Now we're done iterating (usually I don't let the program get this far by setting NUM_TRIES really high)
     let best = &best.lock().unwrap().0;
     let puzzle_tuple_thread = puzzle_tuple_original.lock().unwrap();
-    let test_puzzles = puzzle_tuple_thread.0.sub_matrix(NUM_TRAINING_PUZZLES, 0, NUM_TESTING_PUZZLES, IO_SIZE);
-    let test_solutions = puzzle_tuple_thread.1.sub_matrix(NUM_TRAINING_PUZZLES, 0, NUM_TESTING_PUZZLES, IO_SIZE);
+    let test_puzzles = puzzle_tuple_thread.0.slice(s![NUM_TRAINING_PUZZLES..NUM_TRAINING_PUZZLES+NUM_TESTING_PUZZLES, 0..IO_SIZE]).to_owned();
+    let test_solutions = puzzle_tuple_thread.1.slice(s![NUM_TRAINING_PUZZLES..NUM_TRAINING_PUZZLES+NUM_TESTING_PUZZLES, 0..IO_SIZE]).to_owned();
     //Not needed but doesn't hurt
     drop(puzzle_tuple_thread);
     
     let mut final_loss = 0.0;
     for test_puzzle_num in 0..NUM_TESTING_PUZZLES {
-        let test_puzzle = test_puzzles.sub_matrix(test_puzzle_num, 0, 1, IO_SIZE);
+        let test_puzzle = test_puzzles.slice(s![test_puzzle_num..test_puzzle_num+1, 0..IO_SIZE]).to_owned();
         let test_prediction = best.predict(&test_puzzle);
-        let test_solution = test_solutions.sub_matrix(test_puzzle_num, 0, 1, IO_SIZE);
+        let test_solution = test_solutions.slice(s![test_puzzle_num..test_puzzle_num+1, 0..IO_SIZE]).to_owned();
         //TODO: change to BCE after switching to one-hot
         let loss = DenseNet::calculate_mse_loss(&test_prediction, &test_solution);
         final_loss += loss;
@@ -405,21 +404,17 @@ fn genetic_algorithm() {
     // // println!("Time elapsed: {} ms", duration.as_millis());
 }
 
-fn test_net(dn: &DenseNet, testing_puzzles: &Matrix, testing_solutions: &Matrix) -> f32 {
+fn test_net(dn: &DenseNet, testing_puzzles: &Array2<f32>, testing_solutions: &Array2<f32>) -> f32 {
     DenseNet::calculate_mse_loss(&dn.predict(testing_puzzles), testing_solutions)
 }
 
-fn test_net_specific(dn: &DenseNet, puzzles: &Matrix, solutions: &Matrix) {
+fn test_net_specific(dn: &DenseNet, puzzles: &Array2<f32>, solutions: &Array2<f32>) {
     //Get a random test puzzle and make a prediction on it.
     let randy:f32 = random();
-    let puzzle_num = (randy*(puzzles.rows as f32)) as usize;
-    let puzzle = puzzles.sub_matrix(puzzle_num, 0, 1, IO_SIZE);
-    let mut solution = solutions.sub_matrix(puzzle_num, 0, 1, IO_SIZE);
-    let mut prediction = dn.predict(&puzzle);
-    solution.rows = PUZZLE_WIDTH;
-    solution.cols = PUZZLE_WIDTH;
-    prediction.rows = PUZZLE_WIDTH;
-    prediction.cols = PUZZLE_WIDTH;
+    let puzzle_num = (randy*(puzzles.nrows() as f32)) as usize;
+    let puzzle = puzzles.slice(s![puzzle_num..puzzle_num+1, 0..IO_SIZE]).to_owned();
+    let solution = solutions.slice(s![puzzle_num..puzzle_num+1, 0..IO_SIZE]).to_owned();
+    let prediction = dn.predict(&puzzle);
     //Print out the solution vs the prediction of the puzzle,
     //to see how good (or more likely bad) the net really is at Flow Free.
     println!("\n{}\n{}", solution, prediction);

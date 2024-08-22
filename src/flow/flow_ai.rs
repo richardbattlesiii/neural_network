@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Read};
-use crate::matrix::*;
+use ndarray::{Array, Array2};
 
 pub const PUZZLE_WIDTH: usize = 16;
 pub const COLORS: usize = 80;
 pub const KEY: &str = "-0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ`~!@#$%^&*()=+;':\"[]\\{}|";
-pub fn convert() -> io::Result<(Matrix, Matrix)> {
+pub fn convert() -> io::Result<(Array2<f32>, Array2<f32>)> {
     // Open the file in read-only mode
     let mut file = File::open("2048 16x16.txt")?;
 
@@ -43,19 +43,12 @@ pub fn convert() -> io::Result<(Matrix, Matrix)> {
         solutions.extend(label);
     }
 
-    //println!("Chunks:\n{}", chunks.len());
-    let puzzle_matrix = Matrix {
-        values: puzzles,
-        rows: values.len()/(2*PUZZLE_WIDTH*PUZZLE_WIDTH),
-        cols: PUZZLE_WIDTH*PUZZLE_WIDTH
-    };
+    let rows = values.len()/(2*PUZZLE_WIDTH*PUZZLE_WIDTH);
+    let cols = PUZZLE_WIDTH*PUZZLE_WIDTH;
 
-    let solution_matrix = Matrix {
-        values: solutions,
-        rows: values.len()/(2*PUZZLE_WIDTH*PUZZLE_WIDTH),
-        cols: PUZZLE_WIDTH*PUZZLE_WIDTH
-    };
-    //println!("{}", solution_matrix);
-    Ok((puzzle_matrix, solution_matrix))
+    let puzzles_output = Array2::from_shape_vec((rows, cols), puzzles).unwrap();
+    let solutions_output = Array2::from_shape_vec((rows, cols), solutions).unwrap();
+
+    Ok((puzzles_output, solutions_output))
 }
 

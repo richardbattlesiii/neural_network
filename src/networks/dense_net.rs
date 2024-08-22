@@ -1,7 +1,6 @@
 use crate::*;
 use layers::dense_layer::DenseLayer;
-use layers::layer::*;
-
+use ndarray::{Array1, Array2, s};
 #[derive(Default)]
 #[derive(Clone)]
 /*
@@ -77,14 +76,14 @@ impl DenseNet {
     }
 
     //Will use eventually in combination with reading parameters from a text file
-    pub fn set_parameters_manually(&mut self, weights: &Vec<Matrix>, biases: &Vec<Matrix>) {
+    pub fn set_parameters_manually(&mut self, weights: &Vec<Array2<f32>>, biases: &Vec<Array1<f32>>) {
         for layer in 0..self.num_layers {
             self.layers[layer].set_weights(&weights[layer]);
             self.layers[layer].set_biases(&biases[layer]);
         }
     }
 
-    pub fn get_parameters(&self) -> Vec<(&Matrix, &Matrix)> {
+    pub fn get_parameters(&self) -> Vec<(&Array2<f32>, &Array1<f32>)> {
         let mut output = vec![];
         for layer in 0..self.num_layers {
             output.push(self.layers[layer].get_parameters());
@@ -94,139 +93,88 @@ impl DenseNet {
     }
 
     //Returns the output from each layer.
-    pub fn forward_pass(&self, input: &Matrix) -> Vec<Matrix> {
+    pub fn forward_pass(&self, input: &Array2<f32>) -> Vec<Array2<f32>> {
         let mut all_outputs = vec![];
-        all_outputs.push(input.copy());
+        all_outputs.push(input.clone());
         for layer in 0..self.num_layers {
             //Pass the previous output through the current layer
-            let passed = self.layers[layer].pass(InputTypeEnum::Single(&all_outputs[layer]));
-            match passed {
-                OutputTypeEnum::Single(passed) => {
-                    all_outputs.push(passed);
-                },
-                OutputTypeEnum::Batch(_) => panic!("Got a batch output from a single pass of a dense layer."),
-            }
+            let passed = self.layers[layer].pass(&all_outputs[layer]);
+            all_outputs.push(passed);
         }
     
         all_outputs
     }
     
-    
-    pub fn batch_pass(&self, input: &Matrix) -> Vec<Matrix> {
-        let mut all_outputs = vec![];
-        all_outputs.push(input.copy());
-        for layer in 0..self.num_layers {
-            let passed = self.layers[layer].pass(InputTypeEnum::Single(&all_outputs[layer]));
-            match passed {
-                OutputTypeEnum::Single(output) => {
-                    all_outputs.push(output);
-                },
-                OutputTypeEnum::Batch(_) => panic!("Got a Vec<Matrix> from a DenseLayer. How did that happen????"),
-            }
-        }
-    
-        all_outputs
-    }
-    
-    pub fn predict(&self, input: &Matrix) -> Matrix {
+    pub fn predict(&self, input: &Array2<f32>) -> Array2<f32> {
         let outputs = self.forward_pass(input);
-        outputs[outputs.len() - 1].copy()
+        outputs[outputs.len() - 1].clone()
     }
 
-    pub fn back_prop(&mut self, inputs: &Matrix, labels: &Matrix) {
-        for i in 0..inputs.rows {
-            let input = inputs.sub_matrix(i, 0, 1, inputs.cols);
-            let label = labels.sub_matrix(i, 0, 1, inputs.cols);
-    
-            let all_outputs = self.forward_pass(&input);
-    
-            // Calculate initial error with output layer derivative
-            let mut current_error = all_outputs[all_outputs.len() - 1].copy();
-            current_error.subtract(&label); //Derivative of loss function.
-            
-            for layer in (0..self.num_layers).rev() {
-                let current_layer = &mut self.layers[layer];
-                // Propagate error through activation derivative
-                current_error = current_layer.backpropagate(&all_outputs[layer], &all_outputs[layer + 1], &current_error);
-            }
-        }
-    }
-    
-    pub fn batch_backpropagate(&mut self, inputs: &Matrix, labels: &Matrix) -> f32 {
-        let all_outputs = self.batch_pass(inputs);
-    
-        // Calculate initial error with output layer derivative
-        let mut current_errors = all_outputs[all_outputs.len() - 1].copy();
-        let output = DenseNet::calculate_mse_loss(&current_errors, labels);
-        // current_errors = self.custom_loss_derivative(&current_errors, &labels);
-        current_errors.subtract(&labels); //Derivative of loss function.
+    pub fn backpropagate(&mut self, input: &Array2<f32>, label: &Array2<f32>) -> f32 {
+        let all_outputs = self.forward_pass(&input);
+
+        //Calculate initial error
+        let mut current_error = all_outputs[all_outputs.len() - 1].clone();
+        let output = DenseNet::calculate_mse_loss(&all_outputs[all_outputs.len()-1], label);
+        //Derivative of loss function.
+        current_error -= label;
+        
         for layer in (0..self.num_layers).rev() {
             let current_layer = &mut self.layers[layer];
             // Propagate error through activation derivative
-            let passed_error = current_layer.batch_backpropagate(InputTypeEnum::Single(&all_outputs[layer]),
-                    OutputTypeEnum::Single(&all_outputs[layer + 1]),
-                    OutputTypeEnum::Single(&current_errors));
-            match passed_error {
-                InputTypeEnum::Single(current_error) => current_errors=current_error,
-                InputTypeEnum::Batch(_) => todo!(),
-            }
+            current_error = current_layer.backpropagate(&all_outputs[layer], &all_outputs[layer + 1], &current_error);
         }
+
         output
     }
-
+    
     pub fn add_noise(&mut self, range: f32) {
         for layer in 0..self.num_layers {
             self.layers[layer].add_noise(range);
         }
     }
     
-    pub fn calculate_bce_loss(predictions: &Matrix, labels: &Matrix) -> f32 {
+    pub fn calculate_bce_loss(predictions: &Array2<f32>, labels: &Array2<f32>) -> f32 {
         let mut loss = 0.0;
-        for i in 0..labels.rows {
-            for j in 0..labels.cols {
-                let pred = predictions.values[i*labels.cols + j];
-                let label = labels.values[i*labels.cols + j];
+        for i in 0..labels.nrows() {
+            for j in 0..labels.ncols() {
+                let pred = predictions[[i, j]];
+                let label = labels[[i, j]];
                 loss -= label * pred.ln() + (1.0 - label) * (1.0 - pred).ln();
             }
         }
-        loss / labels.rows as f32
+        loss / labels.nrows() as f32
     }
     
-    pub fn calculate_mse_loss(predictions: &Matrix, labels: &Matrix) -> f32 {
+    pub fn calculate_mse_loss(predictions: &Array2<f32>, labels: &Array2<f32>) -> f32 {
         let mut loss = 0.0;
-        for i in 0..labels.rows {
-            for j in 0..labels.cols {
-                let pred = predictions.values[i*labels.cols + j];
-                let label = labels.values[i*labels.cols + j];
+        for i in 0..labels.nrows() {
+            for j in 0..labels.ncols() {
+                let pred = predictions[[i, j]];
+                let label = labels[[i, j]];
                 let diff = label - pred;
                 loss += (diff)*(diff);
             }
         }
-        loss / (labels.values.len() as f32)
+        loss / (labels.len() as f32)
     }
     
-    pub fn custom_loss_derivative(&self, predictions: &Matrix, labels: &Matrix) -> Matrix {
-        let rows = predictions.rows;
-        let cols = predictions.cols;
-        let mut output_values = Vec::with_capacity(rows*cols);
-        for row in 0..rows {
-            for col in 0..cols {
-                let prediction = predictions.values[row*cols+col];
-                let label = labels.values[row*cols+col];
+    pub fn custom_loss_derivative(&self, predictions: &Array2<f32>, labels: &Array2<f32>) -> Array2<f32> {
+        let mut output = Array2::zeros((predictions.nrows(), predictions.ncols()));
+        for row in 0..predictions.nrows() {
+            for col in 0..predictions.ncols() {
+                let prediction = predictions[[row, col]];
+                let label = labels[[row, col]];
                 if (label == 0.0) ^ (f32::round(prediction) != 0.0) {
-                    output_values.push(NEGATIVE_ONE_WRONG_PENALTY*(prediction-label));
+                    output[[row, col]] = NEGATIVE_ONE_WRONG_PENALTY*(prediction-label);
                 }
                 else {
-                    output_values.push(prediction-label);
+                    output[[row, col]] = prediction-label;
                 }
             }
         }
     
-        Matrix {
-            values: output_values,
-            rows,
-            cols
-        }
+        output
     }
     
     pub fn rose_decay_learning_rate(&mut self, epoch: u32, low: f32, high: f32, oscillate_forever: bool,
