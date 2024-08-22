@@ -20,4 +20,5 @@ pub trait Layer<InputType, OutputType> {
             errors: OutputTypeEnum<&OutputType>) -> InputTypeEnum<InputType>;
     fn get_input_type_id(&self) -> TypeId;
     fn get_output_type_id(&self) -> TypeId;
+    fn set_learning_rate(&mut self, rate: f32);
 }

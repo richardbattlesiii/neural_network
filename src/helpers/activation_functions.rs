@@ -9,7 +9,7 @@ pub fn activate(function_to_use: u8, input: &mut Matrix) {
         RELU => relu(input),
         SIGMOID => simgoid(input),
         TANH => tanh(input),
-        _ => panic!("Invalid actiavtion function.")
+        _ => panic!("Invalid activation function.")
     }
 }
 
@@ -49,7 +49,7 @@ pub fn activation_derivative(function_to_use: u8, input: &Matrix) -> Matrix {
         RELU => return relu_derivative(input).copy(),
         SIGMOID => return simgoid_derivative(input).copy(),
         TANH => return tanh_derivative(input).copy(),
-        _ => panic!("Invalid actiavtion function.")
+        _ => panic!("Invalid activation function.")
     }
 }
 
