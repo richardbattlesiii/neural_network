@@ -37,9 +37,9 @@ pub fn convert() -> io::Result<(Array2<f32>, Array2<f32>)> {
     for row in (0..chunks.len()).step_by(2) {
         let puzzle = chunks[row+1].clone();
         let mut one_hot_puzzle = vec![];
-        for tile in 0..puzzle.len() {
+        for current_value in puzzle {
             for color in 0..COLORS {
-                if puzzle[tile] == color as f32 {
+                if current_value == color as f32 {
                     one_hot_puzzle.push(1.0);
                 }
                 else {
@@ -51,9 +51,9 @@ pub fn convert() -> io::Result<(Array2<f32>, Array2<f32>)> {
 
         let label = chunks[row].clone();
         let mut one_hot_label = vec![];
-        for tile in 0..label.len() {
+        for current_label in label {
             for color in 0..COLORS {
-                if label[tile] == color as f32 {
+                if current_label == color as f32 {
                     one_hot_label.push(1.0);
                 }
                 else {

@@ -127,6 +127,10 @@ impl DenseNet {
         //Calculate initial error
         let mut current_error = all_outputs[all_outputs.len() - 1].clone();
         let output = DenseNet::calculate_bce_loss(&all_outputs[all_outputs.len()-1], label);
+        if f32::is_nan(output) {
+            println!("Output:\n{}, Label:\n{}", current_error, label);
+            panic!();
+        }
         //Derivative of MSE.
         current_error -= label;
         for layer in (0..self.num_layers).rev() {
@@ -148,8 +152,9 @@ impl DenseNet {
         let mut loss = 0.0;
         for i in 0..labels.nrows() {
             for j in 0..labels.ncols() {
-                let pred = predictions[[i, j]];
-                let label = labels[[i, j]];
+                let epsilon = 1e-7;
+                let pred = predictions[[i, j]].clamp(epsilon, 1.0-epsilon);
+                let label = labels[[i, j]].clamp(epsilon, 1.0-epsilon);
                 loss -= label * pred.ln() + (1.0 - label) * (1.0 - pred).ln();
             }
         }

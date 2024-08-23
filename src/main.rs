@@ -102,7 +102,7 @@ const STATIC_LEARNING_RATE: u8 = 3;
 const STATIC_LEARNING_RATE_AMOUNT: f32 = 0.1;
 
 ///Used in L2 Regularization.
-const LAMBDA: f32 = 0.05;
+const LAMBDA: f32 = 0.03;
 /**
     Number of threads to use in genetic algorithm. Note that my cpu has 32 threads but that is... atypical.
     So if you run this make sure you change this unless you also have a lot of cores.
@@ -111,13 +111,13 @@ static NUM_THREADS:u32 = 12;
 
 ///Number of layers, including input and output layers.
 ///Number of dense layers will be this minus one.
-const NUMBER_OF_LAYERS:usize = 4;
+const NUMBER_OF_LAYERS:usize = 3;
 
 ///The size of each layer. Has to be a const for ease of multithreading.
-const LAYER_SIZES: [usize; NUMBER_OF_LAYERS] = [IO_SIZE, IO_SIZE/2, IO_SIZE/2, IO_SIZE];
+const LAYER_SIZES: [usize; NUMBER_OF_LAYERS] = [IO_SIZE, IO_SIZE/4, IO_SIZE];
 
 ///The activation function each layer should use. Has to be a const for ease of multithreading.
-const ACTIVATION_FUNCTIONS: [u8; NUMBER_OF_LAYERS-1] = [0, 0, 1];
+const ACTIVATION_FUNCTIONS: [u8; NUMBER_OF_LAYERS-1] = [0, 1];
 
 ///Number of iterations of the genetic algorithm.
 static NUM_TRIES:u32 = 1000000000;
@@ -136,26 +136,26 @@ static EPOCH_INCREASE:u32 = 1;
     Printing interval -- number of epochs between status updates.
     Not used in genetic algorithm.
 */
-const PRINTERVAL:u32 = 100;
+const PRINTERVAL:u32 = 1000;
 
 ///Max number of epochs.
 ///Note that in the genetic algorithm, this is per generation.
-static MAX_EPOCHS:u32 = 10000000;
+static MAX_EPOCHS:u32 = 100000;
 
 ///How many puzzles to train on.
 ///Will panic if the total number of puzzles is above the number of lines in the input text file (see flow_ai).
-static NUM_TRAINING_PUZZLES:usize = 1900;
+static NUM_TRAINING_PUZZLES:usize = 128;
 
 ///How many puzzles to test on.
 ///Will panic if the total number of puzzles is above the number of lines in the input text file (see flow_ai).
-static NUM_TESTING_PUZZLES:usize = 128;
+static NUM_TESTING_PUZZLES:usize = 64;
 
 ///How many times the genetic algorithm should print a progress update each generation.
 const NUM_PRINTS_PER_GENERATION:u32 = 10;
 
 fn main() {
     //xor();
-    make_regular_dense_net(STATIC_LEARNING_RATE, (0.01,0.0,0.0));
+    make_regular_dense_net(STATIC_LEARNING_RATE, (0.1,0.0,0.0));
     //genetic_algorithm();
 
     // let best_ever_loss = f32::MAX;
@@ -277,13 +277,15 @@ fn make_regular_dense_net(learning_rate_change_method: u8, parameters: (f32, f32
         //Print the progress, finding the MSE of predictions on the test puzzles
         if epoch % PRINTERVAL == 0 {
             let average_loss = test_net(&dn, &testing_puzzles, &testing_solutions);
-            println!("Change method: {}, Epoch: {}, Testing Loss: {}, Training Loss: {}", learning_rate_change_method, epoch, average_loss, training_loss);
-            //test_net_specific(&dn, &testing_puzzles, &testing_solutions);
+            println!("Change method: {}, Epoch: {},\tTesting Loss: {:8.4},  \tTraining Loss: {:8.4}", learning_rate_change_method, epoch, average_loss, training_loss);
+            if epoch % (PRINTERVAL*10) == 0 {
+                test_net_specific(&dn, &testing_puzzles, &testing_solutions);
+            }
         }
 
         
     }
-    //test_net_specific(&dn, &puzzles, &solutions);
+    test_net_specific(&dn, &testing_puzzles, &testing_solutions);
     test_net(&dn, &testing_puzzles, &testing_solutions)
     // //Print how long it took.
     // let duration = start.elapsed().as_millis();
@@ -292,7 +294,7 @@ fn make_regular_dense_net(learning_rate_change_method: u8, parameters: (f32, f32
 
 //Uses multiple threads, each training the same neural net but with noise added
 //NOTE: technically this involves "training" on the test set because of the way it selects the best network,
-//but it's so indirect that I simply do not care.
+//but it's so indirect that I simply do not care for the time being.
 fn genetic_algorithm() {
     //Get a matrix from flow_ai (using a pre-made text file from Java)
     //TODO: rewrite that functionality in Rust
@@ -444,9 +446,34 @@ fn test_net_specific(dn: &DenseNet, puzzles: &Array2<f32>, solutions: &Array2<f3
     let puzzle = puzzles.slice(s![puzzle_num..puzzle_num+1, 0..IO_SIZE]).to_owned();
     let solution = solutions.slice(s![puzzle_num..puzzle_num+1, 0..IO_SIZE]).to_owned();
     let prediction = dn.predict(&puzzle);
+    // println!("{}", solution);
+    // println!("{}", prediction);
+    let converted_solution = predict_from_one_hot(&solution);
+    let converted_prediction = predict_from_one_hot(&prediction);
     //Print out the solution vs the prediction of the puzzle,
     //to see how good (or more likely bad) the net really is at Flow Free.
-    println!("\n{}\n{}", solution, prediction);
+    println!("{}", converted_solution);
+    println!("{}", converted_prediction);
+}
+
+fn predict_from_one_hot(prediction: &Array2<f32>) -> Array2<f32> {
+    let mut output = Array2::zeros((PUZZLE_WIDTH, PUZZLE_WIDTH));
+    for row in 0..output.nrows() {
+        for col in 0..output.ncols() {
+            let mut highest_value = -1.0;
+            let mut best_color = -1.0;
+            for color in 0..COLORS {
+                let pred = prediction[[0, row*PUZZLE_WIDTH*COLORS + col*COLORS + color]];
+                if pred > highest_value {
+                    best_color = color as f32;
+                    highest_value = pred;
+                }
+            }
+            output[[row, col]] = best_color;
+        }
+    }
+
+    output
 }
 
 /**

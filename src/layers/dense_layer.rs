@@ -62,19 +62,30 @@ impl DenseLayer {
         
         let mut weight_gradients = input.t().dot(&grad);
         //L2 Regularization... it's that easy!
-        weight_gradients.scaled_add(self.lambda, &self.weights);
+        weight_gradients.scaled_add(self.lambda, &(&self.weights*&self.weights));
         let mut bias_gradients = grad.sum_axis(ndarray::Axis(0));
     
         const CLIP_THRESHOLD: f32 = 1.0;
         weight_gradients.mapv_inplace(|x| x.clamp(-CLIP_THRESHOLD, CLIP_THRESHOLD));
         bias_gradients.mapv_inplace(|x| x.clamp(-CLIP_THRESHOLD, CLIP_THRESHOLD));
-        
-        self.biases.scaled_add(-self.learning_rate, &bias_gradients);
-        self.weights.scaled_add(-self.learning_rate, &weight_gradients);
+
         let coefficient = -self.learning_rate / input.nrows() as f32;
         self.biases.scaled_add(coefficient, &bias_gradients);
         self.weights.scaled_add(coefficient, &weight_gradients);
-    
+        
+        for i in 0..self.biases.len() {
+            if self.biases[i].abs() > 100.0 {
+                panic!("Yowie zowie.");
+            }
+        }
+        
+        for i in 0..self.weights.nrows() {
+            for j in 0..self.weights.ncols() {
+                if self.weights[[i, j]].abs() > 100.0 {
+                    panic!("Yikes.");
+                }
+            }
+        }
         output
     }
 
@@ -123,7 +134,7 @@ impl DenseLayer {
             }
         }
         output += "\n";
-        for i in 0..self.input_size {
+        for i in 0..self.output_size {
             output += &(self.biases[i].to_string()+" ")
         }
         output
