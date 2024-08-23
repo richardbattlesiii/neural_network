@@ -1,6 +1,7 @@
 #![allow(unused_variables)]
 #![allow(unused_imports)]
 #![allow(dead_code)]
+#![allow(clippy::too_many_arguments)]
 
 pub mod helpers;
 pub mod layers;
@@ -15,7 +16,7 @@ use helpers::activation_functions;
 use rand::random;
 use std::f32::consts::TAU;
 use std::time::{Instant, Duration};
-use flow::flow_ai::{convert, PUZZLE_WIDTH};
+use flow::flow_ai::{convert, PUZZLE_WIDTH, COLORS};
 use ndarray::{Array2, s};
 use networks::dense_net::DenseNet;
 
@@ -35,8 +36,9 @@ const NEGATIVE_ONE_WRONG_PENALTY: f32 = 2.0;
 */
 static THREAD_ITERATION_NOISE_RANGE:f32 = 0.4;
 
-///Size of the input and output layers. Should be PUZZLE_WIDTH squared until I switch to one-hot.
-const IO_SIZE:usize = PUZZLE_WIDTH*PUZZLE_WIDTH;
+///Size of the input and output layers. Since it's one-hot encoded now,
+///it's equal to the channels * the size of the puzzle.
+const IO_SIZE:usize = COLORS*PUZZLE_WIDTH*PUZZLE_WIDTH;
 
 //Variables used in make_regular_dense_net for comparison:
 

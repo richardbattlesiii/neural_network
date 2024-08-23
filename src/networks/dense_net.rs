@@ -16,7 +16,7 @@ pub struct DenseNet {
 
 impl DenseNet {
     ///Make a new DenseNet in a concise way just using two vectors.
-    pub fn new_with_vectors(layer_sizes: &Vec<usize>, activation_functions: &Vec<u8>) -> DenseNet {
+    pub fn new_with_vectors(layer_sizes: &[usize], activation_functions: &[u8]) -> DenseNet {
         let mut layers = vec![];
         //Note the - 1
         let num_layers = layer_sizes.len()-1;
@@ -76,7 +76,7 @@ impl DenseNet {
     }
 
     //Will use eventually in combination with reading parameters from a text file
-    pub fn set_parameters_manually(&mut self, weights: &Vec<Array2<f32>>, biases: &Vec<Array1<f32>>) {
+    pub fn set_parameters_manually(&mut self, weights: &[Array2<f32>], biases: &[Array1<f32>]) {
         for layer in 0..self.num_layers {
             self.layers[layer].set_weights(&weights[layer]);
             self.layers[layer].set_biases(&biases[layer]);
@@ -111,7 +111,7 @@ impl DenseNet {
     }
 
     pub fn backpropagate(&mut self, input: &Array2<f32>, label: &Array2<f32>) -> f32 {
-        let all_outputs = self.forward_pass(&input);
+        let all_outputs = self.forward_pass(input);
 
         //Calculate initial error
         let mut current_error = all_outputs[all_outputs.len() - 1].clone();
@@ -178,17 +178,17 @@ impl DenseNet {
     
     pub fn rose_decay_learning_rate(&mut self, epoch: u32, low: f32, high: f32, oscillate_forever: bool,
             oscillation_coefficient: f32, oscillation_parameter: f32, exponential_parameter: f32) -> f32 {
-        let rose_decayed_learning_rate;
-        if oscillate_forever {
-            let exponential_decay = high * f32::exp(epoch as f32 * exponential_parameter) + low;
-            rose_decayed_learning_rate = exponential_decay * (oscillation_coefficient * f32::sin(oscillation_parameter * epoch as f32) + low)
-            + exponential_decay;
-        }
-        else {
-            let exponential_decay = high * f32::exp(epoch as f32 * exponential_parameter);
-            rose_decayed_learning_rate = oscillation_coefficient * exponential_decay*f32::sin(oscillation_parameter * epoch as f32)
-            + exponential_decay + low;
-        }
+        let rose_decayed_learning_rate =
+            if oscillate_forever {
+                let exponential_decay = high * f32::exp(epoch as f32 * exponential_parameter) + low;
+                exponential_decay * (oscillation_coefficient * f32::sin(oscillation_parameter * epoch as f32) + low)
+                + exponential_decay
+            }
+            else {
+                let exponential_decay = high * f32::exp(epoch as f32 * exponential_parameter);
+                oscillation_coefficient * exponential_decay*f32::sin(oscillation_parameter * epoch as f32)
+                + exponential_decay + low
+            };
         self.set_learning_rate(rose_decayed_learning_rate);
         rose_decayed_learning_rate
     }
