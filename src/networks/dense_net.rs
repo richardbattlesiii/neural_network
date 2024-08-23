@@ -116,9 +116,8 @@ impl DenseNet {
         //Calculate initial error
         let mut current_error = all_outputs[all_outputs.len() - 1].clone();
         let output = DenseNet::calculate_mse_loss(&all_outputs[all_outputs.len()-1], label);
-        //Derivative of loss function.
+        //Derivative of MSE.
         current_error -= label;
-        
         for layer in (0..self.num_layers).rev() {
             let current_layer = &mut self.layers[layer];
             // Propagate error through activation derivative
@@ -156,26 +155,26 @@ impl DenseNet {
                 loss += (diff)*(diff);
             }
         }
-        loss / (labels.len() as f32)
+        loss / labels.len() as f32
     }
     
-    pub fn custom_loss_derivative(&self, predictions: &Array2<f32>, labels: &Array2<f32>) -> Array2<f32> {
-        let mut output = Array2::zeros((predictions.nrows(), predictions.ncols()));
-        for row in 0..predictions.nrows() {
-            for col in 0..predictions.ncols() {
-                let prediction = predictions[[row, col]];
-                let label = labels[[row, col]];
-                if (label == 0.0) ^ (f32::round(prediction) != 0.0) {
-                    output[[row, col]] = NEGATIVE_ONE_WRONG_PENALTY*(prediction-label);
-                }
-                else {
-                    output[[row, col]] = prediction-label;
-                }
-            }
-        }
+    // pub fn custom_loss_derivative(&self, predictions: &Array2<f32>, labels: &Array2<f32>) -> Array2<f32> {
+    //     let mut output = Array2::zeros((predictions.nrows(), predictions.ncols()));
+    //     for row in 0..predictions.nrows() {
+    //         for col in 0..predictions.ncols() {
+    //             let prediction = predictions[[row, col]];
+    //             let label = labels[[row, col]];
+    //             if (label == 0.0) ^ (f32::round(prediction) != 0.0) {
+    //                 output[[row, col]] = NEGATIVE_ONE_WRONG_PENALTY*(prediction-label);
+    //             }
+    //             else {
+    //                 output[[row, col]] = prediction-label;
+    //             }
+    //         }
+    //     }
     
-        output
-    }
+    //     output
+    // }
     
     pub fn rose_decay_learning_rate(&mut self, epoch: u32, low: f32, high: f32, oscillate_forever: bool,
             oscillation_coefficient: f32, oscillation_parameter: f32, exponential_parameter: f32) -> f32 {

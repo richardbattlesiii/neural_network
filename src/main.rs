@@ -11,6 +11,7 @@ use std::fs::File;
 use std::io::{IoSlice, Write};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use helpers::activation_functions;
 use rand::random;
 use std::f32::consts::TAU;
 use std::time::{Instant, Duration};
@@ -96,7 +97,7 @@ const OSCILLATION_PARAMETER_THREE: f32 = -0.01;
 
 ///Just a static learning rate.
 const STATIC_LEARNING_RATE: u8 = 3;
-const STATIC_LEARNING_RATE_AMOUNT: f32 = 0.01;
+const STATIC_LEARNING_RATE_AMOUNT: f32 = 0.1;
 
 /**
     Number of threads to use in genetic algorithm. Note that my cpu has 32 threads but that is... atypical.
@@ -121,7 +122,7 @@ static NUM_TRIES:u32 = 1000000000;
     Printing interval -- number of epochs between status updates.
     Not used in genetic algorithm.
 */
-const PRINTERVAL:u32 = 1;
+const PRINTERVAL:u32 = 10;
 
 /**
     For genetic algorithm. How much should the number of epochs increase each generation?
@@ -135,21 +136,22 @@ static EPOCH_INCREASE:u32 = 1;
 
 ///Max number of epochs.
 ///Note that in the genetic algorithm, this is per generation.
-static MAX_EPOCHS:u32 = 100;
+static MAX_EPOCHS:u32 = 1000;
 
 ///How many puzzles to train on.
 ///Will panic if the total number of puzzles is above the number of lines in the input text file (see flow_ai).
-static NUM_TRAINING_PUZZLES:usize = 128;
+static NUM_TRAINING_PUZZLES:usize = 1900;
 
 ///How many puzzles to test on.
 ///Will panic if the total number of puzzles is above the number of lines in the input text file (see flow_ai).
-static NUM_TESTING_PUZZLES:usize = 1024;
+static NUM_TESTING_PUZZLES:usize = 128;
 
 ///How many times the genetic algorithm should print a progress update each generation.
 const NUM_PRINTS_PER_GENERATION:u32 = 10;
 
 fn main() {
-    make_regular_dense_net(STATIC_LEARNING_RATE, (STATIC_LEARNING_RATE_AMOUNT,0.0,0.0));
+    //xor();
+    make_regular_dense_net(STATIC_LEARNING_RATE, (0.01,0.0,0.0));
     //genetic_algorithm();
 
     // let best_ever_loss = f32::MAX;
@@ -181,8 +183,29 @@ fn main() {
     // }
 }
 
+///Make a DenseNet and have it solve XOR, as a minimum working example to compare with working
+///code.
+fn xor() {
+    let inputs:Array2<f32> = Array2::from_shape_vec((4,2), vec![0.0,0.0, 0.0,1.0, 1.0,0.0, 1.0,1.0]).unwrap();
+    let labels:Array2<f32> = Array2::from_shape_vec((4,1), vec![0.0, 1.0, 1.0, 0.0]).unwrap();
+    let layer_sizes = vec![2, 18, 1];
+    let activation_functions = vec![0, 1];
+    let mut dn = DenseNet::new_with_vectors(&layer_sizes, &activation_functions);
+    dn.initialize();
+    dn.set_learning_rate(0.3);
+    let mut training_error = -1.0;
+    for i in 0..100000 {
+        training_error = dn.backpropagate(&inputs, &labels);
+        // for j in 0..4 {
+        //     training_error = dn.backpropagate(&inputs.slice(s![j..j+1, 0..2]).to_owned(), &labels.slice(s![j..j+1, 0..2]).to_owned());
+        // }
+        //println!("Training error: {}", training_error);
+    }
+    println!("{}", training_error);
+    println!("{}", dn.predict(&inputs));
+}
 ///Make a DenseNet with the specified learning rate change method -- 
-//Rose Decay, exponential decay, oscillation, static. Panics if invalid.
+///Rose Decay, exponential decay, oscillation, static. Panics if invalid.
 fn make_regular_dense_net(learning_rate_change_method: u8, parameters: (f32, f32, f32)) -> f32 {
     //Get a Matrix for the puzzles and their solutions.
     //Shape is [number of puzzles X IO_SIZE]
@@ -203,6 +226,7 @@ fn make_regular_dense_net(learning_rate_change_method: u8, parameters: (f32, f32
     let mut dn = DenseNet::new_with_arrays(&LAYER_SIZES, &ACTIVATION_FUNCTIONS);
     //Randomize the weights using xavier initialization.
     dn.initialize();
+    test_net_specific(&dn, &puzzles, &solutions);
     // //Start measuring the time.
     // let start = Instant::now();
     
@@ -254,7 +278,7 @@ fn make_regular_dense_net(learning_rate_change_method: u8, parameters: (f32, f32
 
         
     }
-
+    test_net_specific(&dn, &puzzles, &solutions);
     test_net(&dn, &testing_puzzles, &testing_solutions)
     // //Print how long it took.
     // let duration = start.elapsed().as_millis();

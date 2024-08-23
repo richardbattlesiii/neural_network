@@ -3,12 +3,12 @@ use std::fs::File;
 use std::io::{self, Read};
 use ndarray::{Array, Array2};
 
-pub const PUZZLE_WIDTH: usize = 16;
-pub const COLORS: usize = 80;
+pub const PUZZLE_WIDTH: usize = 4;
+pub const COLORS: usize = 10;
 pub const KEY: &str = "-0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ`~!@#$%^&*()=+;':\"[]\\{}|";
 pub fn convert() -> io::Result<(Array2<f32>, Array2<f32>)> {
     // Open the file in read-only mode
-    let mut file = File::open("2048 16x16.txt")?;
+    let mut file = File::open("testing.txt")?;
 
     // Create a String to hold the file contents
     let mut contents = String::new();

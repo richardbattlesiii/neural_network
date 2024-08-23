@@ -31,32 +31,44 @@ impl DenseLayer {
             biases: Array1::zeros(output_size)
         }
     }
+    
     pub fn initialize(&mut self){
         let xavier = f32::sqrt(6.0/((self.input_size + self.output_size) as f32 ));
         self.weights = Array2::random((self.input_size, self.output_size), Uniform::new(-xavier, xavier));
-        self.biases = Array1::random(self.output_size, Uniform::new(0.0, 0.001));
+        self.biases = Array1::random(self.output_size, Uniform::new(-0.01, 0.01));
     }
 
     pub fn pass(&self, input: &Array2<f32>) -> Array2<f32> {
+        // println!("Input:\n{}", input);
         let mut product = input.dot(&self.weights);
         let biases_reshaped = self.biases.clone().insert_axis(ndarray::Axis(0));
         product += &biases_reshaped;
         activate(self.activation_function, &mut product);
+        // println!("Output:\n{}", product);
         product
     }
 
     pub fn backpropagate(&mut self, input: &Array2<f32>, my_output: &Array2<f32>, error: &Array2<f32>) -> Array2<f32> {
+        let dl_da = error.clone();
+        let mut derivative = input.dot(&self.weights);
+        activation_derivative(self.activation_function, &mut derivative);
+        let grad = &dl_da * &derivative;
+        // println!("Grad:\n{}\n", grad);
+        let output = grad.dot(&self.weights.t());
         
-        let mut dl_da = my_output.clone();
-        activation_derivative(self.activation_function, &mut dl_da);
-        dl_da *= error;
-
-        let weight_gradients = input.t().dot(&dl_da);
-        let bias_gradients = error.sum_axis(ndarray::Axis(0));
-        let output = error.dot(&self.weights.t());
+        let mut weight_gradients = input.t().dot(&grad);
+        let mut bias_gradients = grad.sum_axis(ndarray::Axis(0));
+    
+        const CLIP_THRESHOLD: f32 = 1.0;
+        weight_gradients.mapv_inplace(|x| x.clamp(-CLIP_THRESHOLD, CLIP_THRESHOLD));
+        bias_gradients.mapv_inplace(|x| x.clamp(-CLIP_THRESHOLD, CLIP_THRESHOLD));
+        
         self.biases.scaled_add(-self.learning_rate, &bias_gradients);
         self.weights.scaled_add(-self.learning_rate, &weight_gradients);
-
+        let coefficient = -self.learning_rate / input.nrows() as f32;
+        self.biases.scaled_add(coefficient, &bias_gradients);
+        self.weights.scaled_add(coefficient, &weight_gradients);
+    
         output
     }
 

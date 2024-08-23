@@ -17,7 +17,7 @@ fn relu(input: &mut Array2<f32>) {
     for row in 0..input.nrows() {
         for col in 0..input.ncols() {
             if input[[row, col]] < 0.0 {
-                input[[row, col]] = 0.0;
+                input[[row, col]] *= 0.001;
             }
         }
     }
