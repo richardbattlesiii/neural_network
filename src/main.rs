@@ -74,10 +74,10 @@ const ROSE_DECAY_OSCILLATION_PARAMETER: f32 = TAU/100.0;
 const ROSE_DECAY_OSCILLATION_COEFFICIENT: f32 = 0.5;
 //Corresponds to high_value in the formula.
 ///Note that it is NOT the max, it's just relatively high.
-const ROSE_DECAY_HIGH_LEARNING_RATE:f32 = 0.5;
+const ROSE_DECAY_HIGH_LEARNING_RATE:f32 = 0.1;
 //Corresponds to low_value in the formula.
 ///Not the minimum when OSCILLATE_FOREVER is true, just relatively low. (It *is* the min when that's false.)
-const ROSE_DECAY_LOW_LEARNING_RATE:f32 = 0.1;
+const ROSE_DECAY_LOW_LEARNING_RATE:f32 = 0.05;
 
 ///Exponential Decay. learning_rate = p1*e^(epoch*p2)+p3
 const EXPONENTIALLY_DECAY_LEARNING_RATE: u8 = 1;
@@ -101,6 +101,8 @@ const OSCILLATION_PARAMETER_THREE: f32 = -0.01;
 const STATIC_LEARNING_RATE: u8 = 3;
 const STATIC_LEARNING_RATE_AMOUNT: f32 = 0.1;
 
+///Used in L2 Regularization.
+const LAMBDA: f32 = 0.05;
 /**
     Number of threads to use in genetic algorithm. Note that my cpu has 32 threads but that is... atypical.
     So if you run this make sure you change this unless you also have a lot of cores.
@@ -109,22 +111,16 @@ static NUM_THREADS:u32 = 12;
 
 ///Number of layers, including input and output layers.
 ///Number of dense layers will be this minus one.
-const NUMBER_OF_LAYERS:usize = 3;
+const NUMBER_OF_LAYERS:usize = 4;
 
 ///The size of each layer. Has to be a const for ease of multithreading.
-const LAYER_SIZES: [usize; NUMBER_OF_LAYERS] = [IO_SIZE, 2, IO_SIZE];
+const LAYER_SIZES: [usize; NUMBER_OF_LAYERS] = [IO_SIZE, IO_SIZE/2, IO_SIZE/2, IO_SIZE];
 
 ///The activation function each layer should use. Has to be a const for ease of multithreading.
-const ACTIVATION_FUNCTIONS: [u8; NUMBER_OF_LAYERS-1] = [0, 0];
+const ACTIVATION_FUNCTIONS: [u8; NUMBER_OF_LAYERS-1] = [0, 0, 1];
 
 ///Number of iterations of the genetic algorithm.
 static NUM_TRIES:u32 = 1000000000;
-
-/**
-    Printing interval -- number of epochs between status updates.
-    Not used in genetic algorithm.
-*/
-const PRINTERVAL:u32 = 10;
 
 /**
     For genetic algorithm. How much should the number of epochs increase each generation?
@@ -136,9 +132,15 @@ const PRINTERVAL:u32 = 10;
 */
 static EPOCH_INCREASE:u32 = 1;
 
+/**
+    Printing interval -- number of epochs between status updates.
+    Not used in genetic algorithm.
+*/
+const PRINTERVAL:u32 = 100;
+
 ///Max number of epochs.
 ///Note that in the genetic algorithm, this is per generation.
-static MAX_EPOCHS:u32 = 1000;
+static MAX_EPOCHS:u32 = 10000000;
 
 ///How many puzzles to train on.
 ///Will panic if the total number of puzzles is above the number of lines in the input text file (see flow_ai).
@@ -228,7 +230,8 @@ fn make_regular_dense_net(learning_rate_change_method: u8, parameters: (f32, f32
     let mut dn = DenseNet::new_with_arrays(&LAYER_SIZES, &ACTIVATION_FUNCTIONS);
     //Randomize the weights using xavier initialization.
     dn.initialize();
-    test_net_specific(&dn, &puzzles, &solutions);
+    dn.set_lambda(LAMBDA);
+    //test_net_specific(&dn, &puzzles, &solutions);
     // //Start measuring the time.
     // let start = Instant::now();
     
@@ -280,7 +283,7 @@ fn make_regular_dense_net(learning_rate_change_method: u8, parameters: (f32, f32
 
         
     }
-    test_net_specific(&dn, &puzzles, &solutions);
+    //test_net_specific(&dn, &puzzles, &solutions);
     test_net(&dn, &testing_puzzles, &testing_solutions)
     // //Print how long it took.
     // let duration = start.elapsed().as_millis();
@@ -414,7 +417,7 @@ fn genetic_algorithm() {
         let test_prediction = best.predict(&test_puzzle);
         let test_solution = test_solutions.slice(s![test_puzzle_num..test_puzzle_num+1, 0..IO_SIZE]).to_owned();
         //TODO: change to BCE after switching to one-hot
-        let loss = DenseNet::calculate_mse_loss(&test_prediction, &test_solution);
+        let loss = DenseNet::calculate_bce_loss(&test_prediction, &test_solution);
         final_loss += loss;
     }
     final_loss /= NUM_TESTING_PUZZLES as f32;
@@ -431,7 +434,7 @@ fn genetic_algorithm() {
 }
 
 fn test_net(dn: &DenseNet, testing_puzzles: &Array2<f32>, testing_solutions: &Array2<f32>) -> f32 {
-    DenseNet::calculate_mse_loss(&dn.predict(testing_puzzles), testing_solutions)
+    DenseNet::calculate_bce_loss(&dn.predict(testing_puzzles), testing_solutions)
 }
 
 fn test_net_specific(dn: &DenseNet, puzzles: &Array2<f32>, solutions: &Array2<f32>) {

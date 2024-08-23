@@ -13,20 +13,24 @@ pub struct DenseLayer {
     input_size:usize,
     output_size:usize,
 
-    pub learning_rate:f32,
-    pub activation_function:u8,
+    learning_rate:f32,
+    activation_function:u8,
+    lambda:f32,
 
-    pub weights:Array2<f32>,
-    pub biases:Array1<f32>
+    weights:Array2<f32>,
+    biases:Array1<f32>
 }
 
 impl DenseLayer {
-    pub fn new(input_size: usize, output_size: usize, learning_rate: f32, activation_function: u8) -> DenseLayer {
+    pub fn new(input_size: usize, output_size: usize,
+            learning_rate: f32, lambda: f32, activation_function: u8)
+            -> DenseLayer {
         DenseLayer {
             input_size,
             output_size,
             learning_rate,
             activation_function,
+            lambda,
             weights: Array2::zeros((input_size, output_size)),
             biases: Array1::zeros(output_size)
         }
@@ -57,6 +61,8 @@ impl DenseLayer {
         let output = grad.dot(&self.weights.t());
         
         let mut weight_gradients = input.t().dot(&grad);
+        //L2 Regularization... it's that easy!
+        weight_gradients.scaled_add(self.lambda, &self.weights);
         let mut bias_gradients = grad.sum_axis(ndarray::Axis(0));
     
         const CLIP_THRESHOLD: f32 = 1.0;
@@ -76,6 +82,17 @@ impl DenseLayer {
         self.learning_rate = rate;
     }
 
+    pub fn get_learning_rate(&self) -> f32 {
+        self.learning_rate
+    }
+
+    pub fn set_lambda(&mut self, lambda: f32) {
+        self.lambda = lambda;
+    }
+
+    pub fn get_lambda(&self) -> f32 {
+        self.lambda
+    }
     pub fn set_weights(&mut self, weights: &Array2<f32>) {
         self.weights = weights.clone();
     }
@@ -127,6 +144,7 @@ impl Clone for DenseLayer {
             output_size: self.output_size,
             learning_rate: self.learning_rate,
             activation_function: self.activation_function,
+            lambda: self.lambda,
             weights: self.weights.clone(),
             biases: self.biases.clone()
         }

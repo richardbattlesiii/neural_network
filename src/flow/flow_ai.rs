@@ -28,24 +28,45 @@ pub fn convert() -> io::Result<(Array2<f32>, Array2<f32>)> {
         .collect();
 
 
-    // Create Vec<Vec<i32>> with dimensions [filelength/interval x interval]
     let chunks: Vec<Vec<f32>> = values.chunks(PUZZLE_WIDTH*PUZZLE_WIDTH)
         .map(|chunk| chunk.to_vec())
         .collect();
 
     let mut puzzles: Vec<f32> = vec![];
     let mut solutions: Vec<f32> = vec![];
-    for row in (0..chunks.len()-1).step_by(2) {
+    for row in (0..chunks.len()).step_by(2) {
         let puzzle = chunks[row+1].clone();
-        puzzles.extend(puzzle);
+        let mut one_hot_puzzle = vec![];
+        for tile in 0..puzzle.len() {
+            for color in 0..COLORS {
+                if puzzle[tile] == color as f32 {
+                    one_hot_puzzle.push(1.0);
+                }
+                else {
+                    one_hot_puzzle.push(0.0);
+                }
+            }
+        }
+        puzzles.extend(one_hot_puzzle);
 
         let label = chunks[row].clone();
-        solutions.extend(label);
+        let mut one_hot_label = vec![];
+        for tile in 0..label.len() {
+            for color in 0..COLORS {
+                if label[tile] == color as f32 {
+                    one_hot_label.push(1.0);
+                }
+                else {
+                    one_hot_label.push(0.0);
+                }
+            }
+        }
+        solutions.extend(one_hot_label);
     }
 
     let rows = values.len()/(2*PUZZLE_WIDTH*PUZZLE_WIDTH);
-    let cols = PUZZLE_WIDTH*PUZZLE_WIDTH;
-
+    let cols = COLORS*PUZZLE_WIDTH*PUZZLE_WIDTH;
+    println!("Length: {}, Rows: {}, Cols: {}", puzzles.len(), rows, cols);
     let puzzles_output = Array2::from_shape_vec((rows, cols), puzzles).unwrap();
     let solutions_output = Array2::from_shape_vec((rows, cols), solutions).unwrap();
 

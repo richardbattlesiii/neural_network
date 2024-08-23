@@ -16,6 +16,8 @@ pub struct DenseNet {
 
 impl DenseNet {
     ///Make a new DenseNet in a concise way just using two vectors.
+    ///Default learning rate must be changed with set_learning_rate() or rose_decay().
+    ///Defeault lambda for L2 regularization must be changed with 
     pub fn new_with_vectors(layer_sizes: &[usize], activation_functions: &[u8]) -> DenseNet {
         let mut layers = vec![];
         //Note the - 1
@@ -26,8 +28,10 @@ impl DenseNet {
                 layer_sizes[layer],
                 //Output size
                 layer_sizes[layer+1],
-                //Default learning rate is 0.1 -- must be updated with set_learning_rate or rose_decay.
+                //Learning rate
                 0.1,
+                //Lambda
+                0.01,
                 //Activation function
                 activation_functions[layer],
             ));
@@ -49,6 +53,7 @@ impl DenseNet {
                 layer_sizes[layer],
                 layer_sizes[layer+1],
                 0.1,
+                0.01,
                 activation_functions[layer],
             ));
         }
@@ -66,7 +71,13 @@ impl DenseNet {
     }
 
     pub fn get_learning_rate(&self) -> f32 {
-        self.layers[0].learning_rate
+        self.layers[0].get_learning_rate()
+    }
+
+    pub fn set_lambda(&mut self, lambda: f32) {
+        for layer in 0..self.num_layers {
+            self.layers[layer].set_lambda(lambda);
+        }
     }
 
     pub fn initialize(&mut self) {
@@ -115,7 +126,7 @@ impl DenseNet {
 
         //Calculate initial error
         let mut current_error = all_outputs[all_outputs.len() - 1].clone();
-        let output = DenseNet::calculate_mse_loss(&all_outputs[all_outputs.len()-1], label);
+        let output = DenseNet::calculate_bce_loss(&all_outputs[all_outputs.len()-1], label);
         //Derivative of MSE.
         current_error -= label;
         for layer in (0..self.num_layers).rev() {
@@ -145,7 +156,7 @@ impl DenseNet {
         loss / labels.nrows() as f32
     }
     
-    pub fn calculate_mse_loss(predictions: &Array2<f32>, labels: &Array2<f32>) -> f32 {
+    pub fn calculate_mse_loss(&self, predictions: &Array2<f32>, labels: &Array2<f32>) -> f32 {
         let mut loss = 0.0;
         for i in 0..labels.nrows() {
             for j in 0..labels.ncols() {
@@ -155,7 +166,19 @@ impl DenseNet {
                 loss += (diff)*(diff);
             }
         }
-        loss / labels.len() as f32
+        loss /= labels.len() as f32;
+
+        let mut l2_penalty = 0.0;
+        for layer in 0..self.num_layers {
+            let weights = self.layers[layer].get_parameters().0;
+            for row in 0..weights.nrows() {
+                for col in 0..weights.ncols() {
+                    let weight = weights[[row, col]];
+                    l2_penalty += weight*weight * self.layers[layer].get_lambda() / 2.0;
+                }
+            }
+        }
+        loss + l2_penalty
     }
     
     // pub fn custom_loss_derivative(&self, predictions: &Array2<f32>, labels: &Array2<f32>) -> Array2<f32> {
