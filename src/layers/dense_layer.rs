@@ -1,5 +1,4 @@
 use std::any::TypeId;
-use std::os::windows;
 
 use crate::helpers::activation_functions::*;
 use rand::Rng;
@@ -54,8 +53,11 @@ impl DenseLayer {
 
     pub fn backpropagate(&mut self, input: &Array2<f32>, my_output: &Array2<f32>, error: &Array2<f32>) -> Array2<f32> {
         let dl_da = error.clone();
+        // Calculate derivative at the correct point
         let mut derivative = input.dot(&self.weights);
-        activation_derivative(self.activation_function, &mut derivative);
+        let biases_reshaped = self.biases.clone().insert_axis(ndarray::Axis(0));
+        derivative += &biases_reshaped;
+        activation_derivative(self.activation_function, &mut derivative); // Apply derivative here
         let grad = &dl_da * &derivative;
         // println!("Grad:\n{}\n", grad);
         let output = grad.dot(&self.weights.t());
@@ -64,11 +66,11 @@ impl DenseLayer {
         //L2 Regularization... it's that easy!
         weight_gradients.scaled_add(self.lambda, &self.weights);
         let mut bias_gradients = grad.sum_axis(ndarray::Axis(0));
-    
+        
         const CLIP_THRESHOLD: f32 = 1.0;
         weight_gradients.mapv_inplace(|x| x.clamp(-CLIP_THRESHOLD, CLIP_THRESHOLD));
         bias_gradients.mapv_inplace(|x| x.clamp(-CLIP_THRESHOLD, CLIP_THRESHOLD));
-
+    
         let coefficient = -self.learning_rate / input.nrows() as f32;
         self.biases.scaled_add(coefficient, &bias_gradients);
         self.weights.scaled_add(coefficient, &weight_gradients);

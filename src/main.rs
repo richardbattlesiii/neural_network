@@ -8,7 +8,6 @@ pub mod layers;
 pub mod flow;
 pub mod networks;
 
-use core::f32;
 use std::fs::File;
 use std::io::{IoSlice, Write};
 use std::sync::{Arc, Mutex};
@@ -58,28 +57,31 @@ const ROSE_DECAY_LEARNING_RATE: u8 = 0;
         output = o * exponential_decay * sin(S * epoch) + exponential_decay + low_value
         - Approaches low_value, with oscillations decreasing to 0 over time.
 */
+
 ///Which version of the formula to use. If true, then it does what it says. It oscillates forever.
 const ROSE_DECAY_OSCILLATE_FOREVER: bool = true;
-/**
-    This should be negative so that the learning rate decays instead of
-    increasing exponentially. That would be bad. I tested it to make sure.
 
-    Corresponds to the X in the formula.
-*/
-const ROSE_DECAY_EXPONENTIAL_PARAMETER: f32 = -1.0/10000.0;
+//Corresponds to the X in the formula.
+///This should be negative so that the learning rate decays instead of
+///increasing exponentially. That would be bad. I tested it to make sure.
+const ROSE_DECAY_EXPONENTIAL_PARAMETER: f32 = -1.0/1000.0;
+
 //Corresponds to S in the formula.
 ///Frequency of oscillations (times tau (which is 2*pi)).
 const ROSE_DECAY_OSCILLATION_PARAMETER: f32 = TAU/1000.0;
+
 //Corresponds to o in the formula.
 ///How big the oscillations are.
 const ROSE_DECAY_OSCILLATION_COEFFICIENT: f32 = 0.5;
+
 //Corresponds to high_value in the formula.
 ///Note that it is NOT the max, it's just relatively high.
-const ROSE_DECAY_HIGH_LEARNING_RATE:f32 = 0.5;
+const ROSE_DECAY_HIGH_LEARNING_RATE:f32 = 0.1;
+
 //Corresponds to low_value in the formula.
-///Not actual the minimum when OSCILLATE_FOREVER is true, just relatively low.
+///Not actually the minimum when OSCILLATE_FOREVER is true, just relatively low.
 ///(It *is* the min when OSCILLATE_FOREVER is false.)
-const ROSE_DECAY_LOW_LEARNING_RATE:f32 = 0.1;
+const ROSE_DECAY_LOW_LEARNING_RATE:f32 = 0.05;
 
 ///Exponential Decay. learning_rate = p1*e^(epoch*p2)+p3
 const EXPONENTIALLY_DECAY_LEARNING_RATE: u8 = 1;
@@ -104,7 +106,7 @@ const STATIC_LEARNING_RATE: u8 = 3;
 const STATIC_LEARNING_RATE_AMOUNT: f32 = 0.1;
 
 ///Used in L2 Regularization.
-const LAMBDA: f32 = 0.005;
+const LAMBDA: f32 = 0.2;
 /**
     Number of threads to use in genetic algorithm. Note that my cpu has 32 threads but that is... atypical.
     So if you run this make sure you change this unless you also have a lot of cores.
@@ -113,13 +115,13 @@ static NUM_THREADS:u32 = 12;
 
 ///Number of layers, including input and output layers.
 ///Number of dense layers will be this minus one.
-const NUMBER_OF_LAYERS:usize = 3;
+const NUMBER_OF_LAYERS:usize = 5;
 
 ///The size of each layer. Has to be a const for ease of multithreading.
-const LAYER_SIZES: [usize; NUMBER_OF_LAYERS] = [IO_SIZE, 4, IO_SIZE];
+const LAYER_SIZES: [usize; NUMBER_OF_LAYERS] = [IO_SIZE, 32, 32, 32, IO_SIZE];
 
 ///The activation function each layer should use. Has to be a const for ease of multithreading.
-const ACTIVATION_FUNCTIONS: [u8; NUMBER_OF_LAYERS-1] = [0, 1];
+const ACTIVATION_FUNCTIONS: [u8; NUMBER_OF_LAYERS-1] = [0, 0, 0, 0];
 
 ///Number of iterations of the genetic algorithm.
 static NUM_TRIES:u32 = 1000000000;
@@ -138,7 +140,7 @@ static EPOCH_INCREASE:u32 = 1;
     Printing interval -- number of epochs between status updates.
     Not used in genetic algorithm.
 */
-const PRINTERVAL:u32 = 100;
+const PRINTERVAL:u32 = 10;
 
 ///Max number of epochs.
 ///Note that in the genetic algorithm, this is per generation.
@@ -146,14 +148,14 @@ static MAX_EPOCHS:u32 = 10000000;
 
 ///How many puzzles to train on.
 ///Will panic if the total number of puzzles is above the number of lines in the input text file (see flow_ai).
-static NUM_TRAINING_PUZZLES:usize = 16384;
+static NUM_TRAINING_PUZZLES:usize = 2048;
 
 ///How many puzzles to test on.
 ///Will panic if the total number of puzzles is above the number of lines in the input text file (see flow_ai).
-static NUM_TESTING_PUZZLES:usize = 1024;
+static NUM_TESTING_PUZZLES:usize = 2048;
 
 ///How often to regenerate the puzzles.
-static REGENERATE_PUZZLES_INTERVAL:u32 = 5000;
+static REGENERATE_PUZZLES_INTERVAL:u32 = 2000;
 
 ///How many times the genetic algorithm should print a progress update each generation.
 const NUM_PRINTS_PER_GENERATION:u32 = 10;
@@ -213,6 +215,9 @@ fn xor() {
     println!("{}", training_error);
     println!("{}", dn.predict(&inputs));
 }
+
+
+
 ///Make a DenseNet with the specified learning rate change method -- 
 ///Rose Decay, exponential decay, oscillation, static. Panics if invalid.
 fn make_regular_dense_net(learning_rate_change_method: u8, parameters: (f32, f32, f32)) -> f32 {
@@ -239,30 +244,30 @@ fn make_regular_dense_net(learning_rate_change_method: u8, parameters: (f32, f32
         }
         
         //Use the specified learning rate change method to update the learning rate, and print out what it is.
-        let learning_rate;
+        // let learning_rate;
         match learning_rate_change_method {
             ROSE_DECAY_LEARNING_RATE => {
-                learning_rate = dn.rose_decay_learning_rate(epoch, ROSE_DECAY_LOW_LEARNING_RATE,
+                dn.rose_decay_learning_rate(epoch, ROSE_DECAY_LOW_LEARNING_RATE,
                         ROSE_DECAY_HIGH_LEARNING_RATE, ROSE_DECAY_OSCILLATE_FOREVER,
                         ROSE_DECAY_OSCILLATION_COEFFICIENT, ROSE_DECAY_OSCILLATION_PARAMETER, ROSE_DECAY_EXPONENTIAL_PARAMETER);
                 
-                if epoch % PRINTERVAL == 0 {
-                    println!("\tLearning rate for Rose Decay is {}.", learning_rate);
-                }
+                // if epoch % PRINTERVAL == 0 {
+                //     println!("\tLearning rate for Rose Decay is {}.", learning_rate);
+                // }
             },
             EXPONENTIALLY_DECAY_LEARNING_RATE => {
-                learning_rate = dn.exponentially_decay_learning_rate(epoch,
+                dn.exponentially_decay_learning_rate(epoch,
                         parameters.0, parameters.1, parameters.2);
-                if epoch % PRINTERVAL == 0 {   
-                    println!("\tLearning rate for exponential decay is {}.", learning_rate);
-                }
+                // if epoch % PRINTERVAL == 0 {   
+                //     println!("\tLearning rate for exponential decay is {}.", learning_rate);
+                // }
             },
             OSCILLATE_LEARNING_RATE => {
-                learning_rate = dn.oscillate_learning_rate(epoch,
+                dn.oscillate_learning_rate(epoch,
                     parameters.0, parameters.1, parameters.2);
-                if epoch % PRINTERVAL == 0 {
-                    println!("\tLearning rate for oscillation is {}.", learning_rate);
-                }
+                // if epoch % PRINTERVAL == 0 {
+                //     println!("\tLearning rate for oscillation is {}.", learning_rate);
+                // }
             },
             STATIC_LEARNING_RATE => {
                 dn.set_learning_rate(parameters.0);
@@ -272,9 +277,6 @@ fn make_regular_dense_net(learning_rate_change_method: u8, parameters: (f32, f32
 
         //Train the net.
         let training_loss = dn.backpropagate(&training_puzzles, &training_solutions);
-        
-        //Sleep so that the threads always print in the same order.
-        //std::thread::sleep(Duration::from_secs_f32(learning_rate_change_method as f32));
 
         //Print the progress, finding the MSE of predictions on the test puzzles
         if epoch % PRINTERVAL == 0 {
@@ -289,9 +291,9 @@ fn make_regular_dense_net(learning_rate_change_method: u8, parameters: (f32, f32
             }
             else if average_loss > best_loss*1.05 &&
                     epoch as f32 > best_epoch as f32+REGENERATE_PUZZLES_INTERVAL as f32 * 1.1 {
-                println!("Best was epoch {} with {} loss.", best_epoch, best_loss);
-                println!("Overfitting, damn it...");
-                break;
+                // println!("Best was epoch {} with {} loss.", best_epoch, best_loss);
+                // println!("Overfitting, damn it...");
+                // break;
             }
         }
 
@@ -535,7 +537,7 @@ fn print_confidence_in_right_answer(prediction: &Array2<f32>, solution: &Array2<
             println!("Total confidence was: {}", confidence);
         }
         //Take the average
-        confidence /= (prediction.ncols()/COLORS) as f32;
+        confidence /= (PUZZLE_WIDTH*PUZZLE_WIDTH) as f32;
         println!("Average confidence in correct answer: {}", confidence);
     }
 }

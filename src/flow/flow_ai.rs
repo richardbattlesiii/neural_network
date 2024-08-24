@@ -6,7 +6,7 @@ use rand::{random, Rng};
 use rand::seq::SliceRandom;
 
 
-pub const PUZZLE_WIDTH: usize = 4;
+pub const PUZZLE_WIDTH: usize = 6;
 pub const COLORS: usize = PUZZLE_WIDTH*PUZZLE_WIDTH/2+2;
 pub const KEY: &str = "-0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ`~!@#$%^&*()=+;':\"[]\\{}|";
 pub fn convert() -> io::Result<(Array2<f32>, Array2<f32>)> {
@@ -77,14 +77,13 @@ pub fn convert() -> io::Result<(Array2<f32>, Array2<f32>)> {
 }
 
 pub fn generate_puzzles(num_puzzles: usize) -> (Array2<f32>, Array2<f32>) {
-    println!("Generating puzzles...");
+    // println!("Generating puzzles...");
     let mut puzzles: Array2<f32> = Array2::zeros((0, PUZZLE_WIDTH*PUZZLE_WIDTH*COLORS));
     let mut solutions: Array2<f32> = Array2::zeros((0, PUZZLE_WIDTH*PUZZLE_WIDTH*COLORS));
     for puzzle_num in 0..num_puzzles {
-        if puzzle_num % (num_puzzles / 5) == 0 {
-            println!("{}%...", puzzle_num * 100 / num_puzzles);
-            //println!("{}", solution);
-        }
+        // if puzzle_num % (num_puzzles / 5) == 0 {
+        //     println!("{}%...", ((puzzle_num * 100 / num_puzzles) as f32 / 5.0).round() * 5.0);
+        // }
         let solution_2d = generate_solution();
         let puzzle_2d = remove_solution(&solution_2d);
 
@@ -94,7 +93,7 @@ pub fn generate_puzzles(num_puzzles: usize) -> (Array2<f32>, Array2<f32>) {
         solutions.push_row(solution_1d.view()).unwrap();
         puzzles.push_row(puzzle_1d.view()).unwrap();
     }
-    println!("100%");
+    // println!("100%");
     //println!("{}\n\n{}", puzzles.row(0), solutions.row(0));
     (puzzles, solutions)
 }

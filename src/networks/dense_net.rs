@@ -1,6 +1,6 @@
 use crate::*;
-use layers::dense_layer::DenseLayer;
-use ndarray::{Array1, Array2, s};
+use layers::{dense_layer::DenseLayer, softmax_layer};
+use ndarray::{Array1, Array2};
 use ndarray_rand::RandomExt;
 use rand::distributions::Uniform;
 #[derive(Default)]
@@ -115,35 +115,40 @@ impl DenseNet {
             dropout(&mut passed);
             all_outputs.push(passed);
         }
-    
+        let softmax_output = softmax_layer::pass(&all_outputs[self.num_layers], PUZZLE_WIDTH);
+        all_outputs.push(softmax_output);
         all_outputs
     }
     
     pub fn predict(&self, input: &Array2<f32>) -> Array2<f32> {
         let outputs = self.forward_pass(input);
-        outputs[outputs.len() - 1].clone()
+        outputs[self.num_layers+1].clone()
     }
 
     pub fn backpropagate(&mut self, input: &Array2<f32>, label: &Array2<f32>) -> f32 {
         let all_outputs = self.forward_pass(input);
 
-        //Calculate initial error
-        let mut current_error = all_outputs[all_outputs.len() - 1].clone();
-        current_error = &current_error * &current_error;
-        let output = self.calculate_bce_loss(&all_outputs[all_outputs.len()-1], label);
-        if f32::is_nan(output) {
-            println!("Output:\n{}, Label:\n{}", current_error, label);
+        //Get the softmax output
+        let softmax_output = &all_outputs[self.num_layers+1];
+        let mut current_error = softmax_output.clone();
+
+        //Compute the gradient of the loss with respect to the logits
+        current_error -= label;
+
+        //Calculate the loss
+        let loss = self.calculate_bce_loss(softmax_output, label);
+        if f32::is_nan(loss) {
+            println!("Output:\n{}, Label:\n{}", softmax_output, label);
             panic!();
         }
-        //Derivative of MSE.
-        current_error -= label;
+        
         for layer in (0..self.num_layers).rev() {
             let current_layer = &mut self.layers[layer];
             // Propagate error through activation derivative
             current_error = current_layer.backpropagate(&all_outputs[layer], &all_outputs[layer + 1], &current_error);
         }
 
-        output
+        loss
     }
     
     pub fn add_noise(&mut self, range: f32) {
@@ -243,7 +248,7 @@ impl DenseNet {
     }
 
     pub fn oscillate_learning_rate(&mut self, epoch: u32, parameter_one: f32, parameter_two: f32,parameter_three: f32) -> f32 {
-        let result = parameter_one*f32::exp(epoch as f32 * parameter_two) + parameter_three;
+        let result = parameter_one*f32::sin(epoch as f32 * parameter_two) + parameter_three;
         self.set_learning_rate(result);
         result
     }
@@ -259,7 +264,7 @@ impl DenseNet {
 }
 
 fn dropout(input: &mut Array2<f32>) {
-    let half_range = 0.1;
+    let half_range = 0.01;
     let min = 1.0-half_range;
     let max = 1.0+half_range;
     let noise = Array2::random((input.nrows(), input.ncols()), Uniform::new(min, max));
