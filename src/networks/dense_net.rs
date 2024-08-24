@@ -1,6 +1,8 @@
 use crate::*;
 use layers::dense_layer::DenseLayer;
 use ndarray::{Array1, Array2, s};
+use ndarray_rand::RandomExt;
+use rand::distributions::Uniform;
 #[derive(Default)]
 #[derive(Clone)]
 /*
@@ -109,7 +111,8 @@ impl DenseNet {
         all_outputs.push(input.clone());
         for layer in 0..self.num_layers {
             //Pass the previous output through the current layer
-            let passed = self.layers[layer].pass(&all_outputs[layer]);
+            let mut passed = self.layers[layer].pass(&all_outputs[layer]);
+            dropout(&mut passed);
             all_outputs.push(passed);
         }
     
@@ -126,7 +129,8 @@ impl DenseNet {
 
         //Calculate initial error
         let mut current_error = all_outputs[all_outputs.len() - 1].clone();
-        let output = DenseNet::calculate_bce_loss(&all_outputs[all_outputs.len()-1], label);
+        current_error = &current_error * &current_error;
+        let output = self.calculate_bce_loss(&all_outputs[all_outputs.len()-1], label);
         if f32::is_nan(output) {
             println!("Output:\n{}, Label:\n{}", current_error, label);
             panic!();
@@ -148,7 +152,7 @@ impl DenseNet {
         }
     }
     
-    pub fn calculate_bce_loss(predictions: &Array2<f32>, labels: &Array2<f32>) -> f32 {
+    pub fn calculate_bce_loss(&self, predictions: &Array2<f32>, labels: &Array2<f32>) -> f32 {
         let mut loss = 0.0;
         for i in 0..labels.nrows() {
             for j in 0..labels.ncols() {
@@ -156,6 +160,17 @@ impl DenseNet {
                 let pred = predictions[[i, j]].clamp(epsilon, 1.0-epsilon);
                 let label = labels[[i, j]].clamp(epsilon, 1.0-epsilon);
                 loss -= label * pred.ln() + (1.0 - label) * (1.0 - pred).ln();
+            }
+        }
+        loss /= COLORS as f32;
+        for l in 0..self.num_layers {
+            let layer = &self.layers[l];
+            let (weights, biases) = layer.get_parameters();
+            for i in 0..weights.nrows() {
+                for j in 0..weights.ncols() {
+                    let weight = weights[[i, j]];
+                    loss += layer.get_lambda() / 2.0 * weight * weight;
+                }
             }
         }
         loss / labels.nrows() as f32
@@ -241,4 +256,12 @@ impl DenseNet {
 
         output
     }
+}
+
+fn dropout(input: &mut Array2<f32>) {
+    let half_range = 0.1;
+    let min = 1.0-half_range;
+    let max = 1.0+half_range;
+    let noise = Array2::random((input.nrows(), input.ncols()), Uniform::new(min, max));
+    *input *= &noise;
 }

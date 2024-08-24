@@ -7,7 +7,7 @@ use rand::seq::SliceRandom;
 
 
 pub const PUZZLE_WIDTH: usize = 4;
-pub const COLORS: usize = 10;
+pub const COLORS: usize = PUZZLE_WIDTH*PUZZLE_WIDTH/2+2;
 pub const KEY: &str = "-0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ`~!@#$%^&*()=+;':\"[]\\{}|";
 pub fn convert() -> io::Result<(Array2<f32>, Array2<f32>)> {
     // Open the file in read-only mode
@@ -81,7 +81,7 @@ pub fn generate_puzzles(num_puzzles: usize) -> (Array2<f32>, Array2<f32>) {
     let mut puzzles: Array2<f32> = Array2::zeros((0, PUZZLE_WIDTH*PUZZLE_WIDTH*COLORS));
     let mut solutions: Array2<f32> = Array2::zeros((0, PUZZLE_WIDTH*PUZZLE_WIDTH*COLORS));
     for puzzle_num in 0..num_puzzles {
-        if puzzle_num % (num_puzzles / 10) == 0 {
+        if puzzle_num % (num_puzzles / 5) == 0 {
             println!("{}%...", puzzle_num * 100 / num_puzzles);
             //println!("{}", solution);
         }
@@ -110,7 +110,7 @@ pub fn generate_solution() -> Array2<f32> {
     let mut reachable = find_reachable(&grid);
     //Start at 2 because 0 is reserved for impassable tiles and 1 is reserved for empty but passable
     let mut current_color = 2;
-    while current_color < COLORS && reachable.len() > 0 {
+    while current_color < COLORS && !reachable.is_empty() {
         if debug {
             println!("Color is {}.", current_color);
         }
@@ -140,13 +140,12 @@ pub fn generate_solution() -> Array2<f32> {
         let path = generate_path(group, &path, (x1, y1), (x2, y2), (grid.nrows(), grid.ncols()));
 
         //Empty path means it was impossible to generate (though that shouldn't be possible...)
-        if path.len() == 0 {
+        if path.is_empty() {
             panic!("Generated path was empty... how did that happen? Probably a bug in find_reachable.");
         }
 
         //Add the generated path to the grid.
-        for node in 0..path.len() {
-            let (current_x, current_y) = path[node];
+        for (current_x, current_y) in path {
             grid[[current_x, current_y]] = current_color as f32;
         }
         if debug {
@@ -158,8 +157,27 @@ pub fn generate_solution() -> Array2<f32> {
 
         current_color += 1;
     }
+    
     if debug {
-        println!("Generated solution:\n{}", grid);
+        println!("Pre-color shuffle:\n{}", grid);
+    }
+    //Shuffle the colors so the net doesn't just predict 2 every time.
+    let mut colors = vec![];
+    for i in 2..COLORS {
+        colors.push(i as f32);
+    }
+
+    colors.shuffle(&mut rand::thread_rng());
+    for row in 0..grid.nrows() {
+        for col in 0..grid.ncols() {
+            if grid[[row, col]] > 1.0 {
+                grid[[row, col]] = colors[(grid[[row, col]] as usize) % (COLORS-2)];
+            }
+        }
+    }
+
+    if debug {
+        println!("Post-shuffle:\n{}", grid);
     }
     grid
 }
@@ -221,9 +239,8 @@ fn generate_path(
         println!("\tDirections: {:?}", directions);
     }
     //Check if we're adjacent to the last point.
-    for i in 0..directions.len() {
-        let direction = directions[i];
-        if direction == (x2, y2) {
+    for direction in &directions {
+        if *direction == (x2, y2) {
             if debug {
                 println!("\tAdjacent to output node.");
             }
@@ -241,9 +258,9 @@ fn generate_path(
     }
     //If we've already visited an adjacent tile, that means there are multiple solutions, so the
     //puzzle is invalid.
-    for i in 0..directions.len() {
+    for direction in &directions {
         let len = path_so_far.len();
-        if len > 1 && path_so_far[0..len-2].contains(&directions[i]) {
+        if len > 1 && path_so_far[0..len-2].contains(direction) {
             if debug {
                 println!("\tpath_so_far had an adjacent node -- {:?}", path_so_far);
             }
@@ -253,21 +270,21 @@ fn generate_path(
 
     //Otherwise, try going in each direction.
     directions.shuffle(&mut rand::thread_rng());
-    for i in 0..directions.len() {
+    for direction in &directions {
         let mut my_path = path_so_far.clone();
-        my_path.push(directions[i].clone());
+        my_path.push(*direction);
         if debug {
-            println!("Trying to go to {:?}", directions[i]);
+            println!("Trying to go to {:?}", direction);
         }
-        let recursive_path = generate_path(reachable, &my_path, directions[i].clone(), (x2, y2), max_size);
-        if recursive_path.len() > 0 {
+        let recursive_path = generate_path(reachable, &my_path, *direction, (x2, y2), max_size);
+        if !recursive_path.is_empty() {
             if debug {
                 println!("Succeeded.");
             }
             return recursive_path;
         }
         else if debug {
-            println!("Failed to go to {:?}.", directions[i]);
+            println!("Failed to go to {:?}.", direction);
         }
     }
 
@@ -356,12 +373,11 @@ fn flood_fill(grid: &Array2<f32>, position: &(usize, usize),
         println!("\tI've been to: {:?}", my_visited);
     }
     //Go in each direction.
-    for i in 0..directions.len() {
-        let direction = directions[i];
+    for direction in directions {
         //Make sure we haven't been there and it's empty.
         if !my_visited.contains(&direction) && grid[[direction.0, direction.1]] <= 0.01 {
-            new_positions.push(direction.clone());
-            my_visited.push(direction.clone());
+            new_positions.push(direction);
+            my_visited.push(direction);
             if debug {
                 println!("\tFound a new spot at ({}, {})", direction.0, direction.1);
             }
@@ -379,14 +395,16 @@ fn remove_solution(grid: &Array2<f32>) -> Array2<f32> {
             let color = grid[[row, col]];
             if color != 0.0 {
                 let mut same_color_count: u8 = 0;
-                for i in -1..2 as i8 {
-                    for j in -1..2 as i8 {
+                for i in -1..2_i8 {
+                    for j in -1..2_i8 {
                         if (i.abs()==1) ^ (j.abs()==1) {
                             //println!("Checking i {} and j {}", i, j);
-                            if (row > 0 || i > -1) && (col > 0 || j > -1) && (row as i8 + i < grid.nrows() as i8) && (col as i8 + j < grid.ncols() as i8) {
-                                if grid[[(row as i8 + i) as usize, (col as i8 + j) as usize]] == color {
-                                    same_color_count += 1;
-                                }
+                            if (row > 0 || i > -1) && (col > 0 || j > -1) &&
+                                    (row as i8 + i < grid.nrows() as i8) &&
+                                    (col as i8 + j < grid.ncols() as i8) &&
+                                    grid[[(row as i8 + i) as usize, (col as i8 + j) as usize]] == color {
+                                same_color_count += 1;
+                                
                             }
                         }
                     }
@@ -395,6 +413,9 @@ fn remove_solution(grid: &Array2<f32>) -> Array2<f32> {
                 if same_color_count == 1 {
                     output[[row, col]] = color;
                     //println!("Okie");
+                }
+                else if same_color_count == 2 {
+                    output[[row, col]] = 1f32;
                 }
                 else if same_color_count != 2 {
                     println!("Row: {}, Col: {}", row, col);
@@ -409,11 +430,10 @@ fn remove_solution(grid: &Array2<f32>) -> Array2<f32> {
 
 fn one_hot_encode(grid: &Array2<f32>) -> Array1<f32> {
     let mut output = Array1::zeros(COLORS * PUZZLE_WIDTH * PUZZLE_WIDTH);
-
     for row in 0..PUZZLE_WIDTH {
         for col in 0..PUZZLE_WIDTH {
             let grid_value = grid[[row, col]];
-            output[[row*COLORS*PUZZLE_WIDTH + col*COLORS + (grid_value as usize)]] = 1.0
+            output[[row*COLORS*PUZZLE_WIDTH + col*COLORS + (grid_value.floor() as usize)]] = 1.0
         }
     }
 

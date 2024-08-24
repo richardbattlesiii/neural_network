@@ -8,12 +8,13 @@ pub mod layers;
 pub mod flow;
 pub mod networks;
 
+use core::f32;
 use std::fs::File;
 use std::io::{IoSlice, Write};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use helpers::activation_functions;
-use rand::random;
+use rand::{random, Rng};
 use std::f32::consts::TAU;
 use std::time::{Instant, Duration};
 use flow::flow_ai::{self, convert, COLORS, PUZZLE_WIDTH};
@@ -65,7 +66,7 @@ const ROSE_DECAY_OSCILLATE_FOREVER: bool = true;
 
     Corresponds to the X in the formula.
 */
-const ROSE_DECAY_EXPONENTIAL_PARAMETER: f32 = -1.0/500.0;
+const ROSE_DECAY_EXPONENTIAL_PARAMETER: f32 = -1.0/10000.0;
 //Corresponds to S in the formula.
 ///Frequency of oscillations (times tau (which is 2*pi)).
 const ROSE_DECAY_OSCILLATION_PARAMETER: f32 = TAU/1000.0;
@@ -74,7 +75,7 @@ const ROSE_DECAY_OSCILLATION_PARAMETER: f32 = TAU/1000.0;
 const ROSE_DECAY_OSCILLATION_COEFFICIENT: f32 = 0.5;
 //Corresponds to high_value in the formula.
 ///Note that it is NOT the max, it's just relatively high.
-const ROSE_DECAY_HIGH_LEARNING_RATE:f32 = 0.3;
+const ROSE_DECAY_HIGH_LEARNING_RATE:f32 = 0.5;
 //Corresponds to low_value in the formula.
 ///Not actual the minimum when OSCILLATE_FOREVER is true, just relatively low.
 ///(It *is* the min when OSCILLATE_FOREVER is false.)
@@ -103,7 +104,7 @@ const STATIC_LEARNING_RATE: u8 = 3;
 const STATIC_LEARNING_RATE_AMOUNT: f32 = 0.1;
 
 ///Used in L2 Regularization.
-const LAMBDA: f32 = 0.05;
+const LAMBDA: f32 = 0.005;
 /**
     Number of threads to use in genetic algorithm. Note that my cpu has 32 threads but that is... atypical.
     So if you run this make sure you change this unless you also have a lot of cores.
@@ -115,7 +116,7 @@ static NUM_THREADS:u32 = 12;
 const NUMBER_OF_LAYERS:usize = 3;
 
 ///The size of each layer. Has to be a const for ease of multithreading.
-const LAYER_SIZES: [usize; NUMBER_OF_LAYERS] = [IO_SIZE, IO_SIZE/4, IO_SIZE];
+const LAYER_SIZES: [usize; NUMBER_OF_LAYERS] = [IO_SIZE, 4, IO_SIZE];
 
 ///The activation function each layer should use. Has to be a const for ease of multithreading.
 const ACTIVATION_FUNCTIONS: [u8; NUMBER_OF_LAYERS-1] = [0, 1];
@@ -137,19 +138,22 @@ static EPOCH_INCREASE:u32 = 1;
     Printing interval -- number of epochs between status updates.
     Not used in genetic algorithm.
 */
-const PRINTERVAL:u32 = 50;
+const PRINTERVAL:u32 = 100;
 
 ///Max number of epochs.
 ///Note that in the genetic algorithm, this is per generation.
-static MAX_EPOCHS:u32 = 100000;
+static MAX_EPOCHS:u32 = 10000000;
 
 ///How many puzzles to train on.
 ///Will panic if the total number of puzzles is above the number of lines in the input text file (see flow_ai).
-static NUM_TRAINING_PUZZLES:usize = 8192;
+static NUM_TRAINING_PUZZLES:usize = 16384;
 
 ///How many puzzles to test on.
 ///Will panic if the total number of puzzles is above the number of lines in the input text file (see flow_ai).
-static NUM_TESTING_PUZZLES:usize = 512;
+static NUM_TESTING_PUZZLES:usize = 1024;
+
+///How often to regenerate the puzzles.
+static REGENERATE_PUZZLES_INTERVAL:u32 = 5000;
 
 ///How many times the genetic algorithm should print a progress update each generation.
 const NUM_PRINTS_PER_GENERATION:u32 = 10;
@@ -214,28 +218,26 @@ fn xor() {
 fn make_regular_dense_net(learning_rate_change_method: u8, parameters: (f32, f32, f32)) -> f32 {
     //Get a Matrix for the puzzles and their solutions.
     //Shape is [number of puzzles X IO_SIZE]
-    let (puzzles, solutions) = flow_ai::generate_puzzles(NUM_TRAINING_PUZZLES);
-
-    //Separate the training and testing puzzles.
-    let training_puzzles = puzzles.slice(s![0..NUM_TRAINING_PUZZLES, 0..IO_SIZE]).to_owned();
-    let training_solutions = solutions.slice(s![0..NUM_TRAINING_PUZZLES, 0..IO_SIZE]).to_owned();
-    //Note that the testing puzzles start after, and panic if there are too many
-    // if NUM_TESTING_PUZZLES+NUM_TRAINING_PUZZLES > puzzles.nrows() {
-    //     panic!("Too many training ({}) and testing ({}) puzzles ({} total) for the amount in the text file ({}).",
-    //             NUM_TRAINING_PUZZLES, NUM_TESTING_PUZZLES, NUM_TRAINING_PUZZLES+NUM_TESTING_PUZZLES, puzzles.nrows());
-    // }
+    let (training_puzzles, training_solutions) = flow_ai::generate_puzzles(NUM_TRAINING_PUZZLES);
     let (testing_puzzles, testing_solutions) = flow_ai::generate_puzzles(NUM_TESTING_PUZZLES);
-
+    
     //Make a DenseNet with the constant layer sizes & activation functions.
     let mut dn = DenseNet::new_with_arrays(&LAYER_SIZES, &ACTIVATION_FUNCTIONS);
     //Randomize the weights using xavier initialization.
     dn.initialize();
     dn.set_lambda(LAMBDA);
     //test_net_specific(&dn, &puzzles, &solutions);
-    // //Start measuring the time.
-    // let start = Instant::now();
     
+    //Keep track of how well the network is doing
+    let mut best_loss = f32::MAX;
+    let mut best_epoch = 0;
     for epoch in 0..MAX_EPOCHS+1 {
+        //Regenerate the puzzles every once in a while because it doesn't take that long.
+        if epoch % REGENERATE_PUZZLES_INTERVAL == 0 && epoch > 0 {
+            let (training_puzzles, training_solutions) = flow_ai::generate_puzzles(NUM_TRAINING_PUZZLES);
+            let (testing_puzzles, testing_solutions) = flow_ai::generate_puzzles(NUM_TESTING_PUZZLES);
+        }
+        
         //Use the specified learning rate change method to update the learning rate, and print out what it is.
         let learning_rate;
         match learning_rate_change_method {
@@ -281,12 +283,23 @@ fn make_regular_dense_net(learning_rate_change_method: u8, parameters: (f32, f32
             if epoch % (PRINTERVAL*10) == 0 {
                 test_net_specific(&dn, &testing_puzzles, &testing_solutions);
             }
+            if average_loss < best_loss {
+                best_loss = average_loss;
+                best_epoch = epoch;
+            }
+            else if average_loss > best_loss*1.05 &&
+                    epoch as f32 > best_epoch as f32+REGENERATE_PUZZLES_INTERVAL as f32 * 1.1 {
+                println!("Best was epoch {} with {} loss.", best_epoch, best_loss);
+                println!("Overfitting, damn it...");
+                break;
+            }
         }
 
         
     }
     test_net_specific(&dn, &testing_puzzles, &testing_solutions);
     test_net(&dn, &testing_puzzles, &testing_solutions)
+
     // //Print how long it took.
     // let duration = start.elapsed().as_millis();
     // println!("Finished in {}ms.", duration);
@@ -419,7 +432,7 @@ fn genetic_algorithm() {
         let test_prediction = best.predict(&test_puzzle);
         let test_solution = test_solutions.slice(s![test_puzzle_num..test_puzzle_num+1, 0..IO_SIZE]).to_owned();
         //TODO: change to BCE after switching to one-hot
-        let loss = DenseNet::calculate_bce_loss(&test_prediction, &test_solution);
+        let loss = best.calculate_bce_loss(&test_prediction, &test_solution);
         final_loss += loss;
     }
     final_loss /= NUM_TESTING_PUZZLES as f32;
@@ -436,7 +449,7 @@ fn genetic_algorithm() {
 }
 
 fn test_net(dn: &DenseNet, testing_puzzles: &Array2<f32>, testing_solutions: &Array2<f32>) -> f32 {
-    DenseNet::calculate_bce_loss(&dn.predict(testing_puzzles), testing_solutions)
+    dn.calculate_bce_loss(&dn.predict(testing_puzzles), testing_solutions)
 }
 
 fn test_net_specific(dn: &DenseNet, puzzles: &Array2<f32>, solutions: &Array2<f32>) {
@@ -454,6 +467,7 @@ fn test_net_specific(dn: &DenseNet, puzzles: &Array2<f32>, solutions: &Array2<f3
     //to see how good (or more likely bad) the net really is at Flow Free.
     println!("{}", converted_solution);
     println!("{}", converted_prediction);
+    print_confidence_in_right_answer(&prediction, &solution);
 }
 
 fn predict_from_one_hot(prediction: &Array2<f32>) -> Array2<f32> {
@@ -501,3 +515,42 @@ fn interpolate_by_halves(iterations: u32) -> f32 {
     //In case input is invalid (shouldn't happen with proper input)
     0.0
 }
+
+fn print_confidence_in_right_answer(prediction: &Array2<f32>, solution: &Array2<f32>) {
+    let debug = false;
+    //Loop over the puzzles
+    for row in 0..prediction.nrows() {
+        //Store the total confidence
+        let mut confidence = 0.0;
+        //Loop over the tiles in the puzzle, checking if each one is correct
+        for col in 0..prediction.ncols() {
+            if solution[[row, col]] == 1f32 {
+                confidence += prediction[[row, col]];
+                if debug {
+                    println!("Added ({}, {}) which should be tile {} color {}.", row, col, col/COLORS, col%COLORS);
+                }
+            }
+        }
+        if debug {
+            println!("Total confidence was: {}", confidence);
+        }
+        //Take the average
+        confidence /= (prediction.ncols()/COLORS) as f32;
+        println!("Average confidence in correct answer: {}", confidence);
+    }
+}
+
+// fn dropout(input: &mut Array2<f32>) {
+//     println!("Starting dropout.");
+//     let mut rng = rand::thread_rng();
+//     for row in 0..input.nrows() {
+//         for col in 0..input.ncols() {
+//             if input[[row, col]] == 1.0 {
+//                 let p = COLORS as f32 /(input.ncols() as f32);
+//                 if rng.gen::<f32>() <= p {
+//                     input[[row, col]] = 0.0;
+//                 }
+//             }
+//         }
+//     }
+// }
