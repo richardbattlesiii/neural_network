@@ -16,7 +16,7 @@ use helpers::activation_functions;
 use rand::random;
 use std::f32::consts::TAU;
 use std::time::{Instant, Duration};
-use flow::flow_ai::{convert, PUZZLE_WIDTH, COLORS};
+use flow::flow_ai::{self, convert, COLORS, PUZZLE_WIDTH};
 use ndarray::{Array2, s};
 use networks::dense_net::DenseNet;
 
@@ -30,7 +30,7 @@ const NEGATIVE_ONE_WRONG_PENALTY: f32 = 2.0;
 
 /**
     For genetic algorithm.
-    Corresponds to the maximum percentage increase or decrease in each weight and bias.
+    Corresponds to twice the maximum percentage increase or decrease in each weight and bias.
     I think ideally you would have thread 0 (the one with no mutation) showing up and producing
     a new best about half of the time.
 */
@@ -65,19 +65,20 @@ const ROSE_DECAY_OSCILLATE_FOREVER: bool = true;
 
     Corresponds to the X in the formula.
 */
-const ROSE_DECAY_EXPONENTIAL_PARAMETER: f32 = -1.0/50.0;
+const ROSE_DECAY_EXPONENTIAL_PARAMETER: f32 = -1.0/500.0;
 //Corresponds to S in the formula.
 ///Frequency of oscillations (times tau (which is 2*pi)).
-const ROSE_DECAY_OSCILLATION_PARAMETER: f32 = TAU/100.0;
+const ROSE_DECAY_OSCILLATION_PARAMETER: f32 = TAU/1000.0;
 //Corresponds to o in the formula.
 ///How big the oscillations are.
 const ROSE_DECAY_OSCILLATION_COEFFICIENT: f32 = 0.5;
 //Corresponds to high_value in the formula.
 ///Note that it is NOT the max, it's just relatively high.
-const ROSE_DECAY_HIGH_LEARNING_RATE:f32 = 0.1;
+const ROSE_DECAY_HIGH_LEARNING_RATE:f32 = 0.3;
 //Corresponds to low_value in the formula.
-///Not the minimum when OSCILLATE_FOREVER is true, just relatively low. (It *is* the min when that's false.)
-const ROSE_DECAY_LOW_LEARNING_RATE:f32 = 0.05;
+///Not actual the minimum when OSCILLATE_FOREVER is true, just relatively low.
+///(It *is* the min when OSCILLATE_FOREVER is false.)
+const ROSE_DECAY_LOW_LEARNING_RATE:f32 = 0.1;
 
 ///Exponential Decay. learning_rate = p1*e^(epoch*p2)+p3
 const EXPONENTIALLY_DECAY_LEARNING_RATE: u8 = 1;
@@ -102,7 +103,7 @@ const STATIC_LEARNING_RATE: u8 = 3;
 const STATIC_LEARNING_RATE_AMOUNT: f32 = 0.1;
 
 ///Used in L2 Regularization.
-const LAMBDA: f32 = 0.03;
+const LAMBDA: f32 = 0.05;
 /**
     Number of threads to use in genetic algorithm. Note that my cpu has 32 threads but that is... atypical.
     So if you run this make sure you change this unless you also have a lot of cores.
@@ -136,7 +137,7 @@ static EPOCH_INCREASE:u32 = 1;
     Printing interval -- number of epochs between status updates.
     Not used in genetic algorithm.
 */
-const PRINTERVAL:u32 = 1000;
+const PRINTERVAL:u32 = 50;
 
 ///Max number of epochs.
 ///Note that in the genetic algorithm, this is per generation.
@@ -144,18 +145,18 @@ static MAX_EPOCHS:u32 = 100000;
 
 ///How many puzzles to train on.
 ///Will panic if the total number of puzzles is above the number of lines in the input text file (see flow_ai).
-static NUM_TRAINING_PUZZLES:usize = 128;
+static NUM_TRAINING_PUZZLES:usize = 8192;
 
 ///How many puzzles to test on.
 ///Will panic if the total number of puzzles is above the number of lines in the input text file (see flow_ai).
-static NUM_TESTING_PUZZLES:usize = 64;
+static NUM_TESTING_PUZZLES:usize = 512;
 
 ///How many times the genetic algorithm should print a progress update each generation.
 const NUM_PRINTS_PER_GENERATION:u32 = 10;
 
 fn main() {
     //xor();
-    make_regular_dense_net(STATIC_LEARNING_RATE, (0.1,0.0,0.0));
+    make_regular_dense_net(ROSE_DECAY_LEARNING_RATE, (0.0,0.0,0.0));
     //genetic_algorithm();
 
     // let best_ever_loss = f32::MAX;
@@ -198,7 +199,7 @@ fn xor() {
     dn.initialize();
     dn.set_learning_rate(0.3);
     let mut training_error = -1.0;
-    for i in 0..100000 {
+    for i in 0..MAX_EPOCHS {
         training_error = dn.backpropagate(&inputs, &labels);
         // for j in 0..4 {
         //     training_error = dn.backpropagate(&inputs.slice(s![j..j+1, 0..2]).to_owned(), &labels.slice(s![j..j+1, 0..2]).to_owned());
@@ -213,18 +214,17 @@ fn xor() {
 fn make_regular_dense_net(learning_rate_change_method: u8, parameters: (f32, f32, f32)) -> f32 {
     //Get a Matrix for the puzzles and their solutions.
     //Shape is [number of puzzles X IO_SIZE]
-    let (puzzles, solutions) = convert().unwrap();
+    let (puzzles, solutions) = flow_ai::generate_puzzles(NUM_TRAINING_PUZZLES);
 
     //Separate the training and testing puzzles.
     let training_puzzles = puzzles.slice(s![0..NUM_TRAINING_PUZZLES, 0..IO_SIZE]).to_owned();
     let training_solutions = solutions.slice(s![0..NUM_TRAINING_PUZZLES, 0..IO_SIZE]).to_owned();
     //Note that the testing puzzles start after, and panic if there are too many
-    if NUM_TESTING_PUZZLES+NUM_TRAINING_PUZZLES > puzzles.nrows() {
-        panic!("Too many training ({}) and testing ({}) puzzles ({} total) for the amount in the text file ({}).",
-                NUM_TRAINING_PUZZLES, NUM_TESTING_PUZZLES, NUM_TRAINING_PUZZLES+NUM_TESTING_PUZZLES, puzzles.nrows());
-    }
-    let testing_puzzles = puzzles.slice(s![NUM_TRAINING_PUZZLES..NUM_TRAINING_PUZZLES+NUM_TESTING_PUZZLES, 0..IO_SIZE]).to_owned();
-    let testing_solutions = solutions.slice(s![NUM_TRAINING_PUZZLES..NUM_TRAINING_PUZZLES+NUM_TESTING_PUZZLES, 0..IO_SIZE]).to_owned();
+    // if NUM_TESTING_PUZZLES+NUM_TRAINING_PUZZLES > puzzles.nrows() {
+    //     panic!("Too many training ({}) and testing ({}) puzzles ({} total) for the amount in the text file ({}).",
+    //             NUM_TRAINING_PUZZLES, NUM_TESTING_PUZZLES, NUM_TRAINING_PUZZLES+NUM_TESTING_PUZZLES, puzzles.nrows());
+    // }
+    let (testing_puzzles, testing_solutions) = flow_ai::generate_puzzles(NUM_TESTING_PUZZLES);
 
     //Make a DenseNet with the constant layer sizes & activation functions.
     let mut dn = DenseNet::new_with_arrays(&LAYER_SIZES, &ACTIVATION_FUNCTIONS);
