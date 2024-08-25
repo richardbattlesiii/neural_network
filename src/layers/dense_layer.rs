@@ -1,10 +1,7 @@
-use std::any::TypeId;
-
 use crate::helpers::activation_functions::*;
 use rand::Rng;
 use std::fmt;
-use ndarray::Array1;
-use ndarray::Array2;
+use ndarray::{Array1, ArrayView1, Array2, ArrayView2};
 use ndarray_rand::RandomExt;
 use ndarray_rand::rand_distr::Uniform;
 
@@ -41,25 +38,23 @@ impl DenseLayer {
         self.biases = Array1::random(self.output_size, Uniform::new(-0.01, 0.01));
     }
 
-    pub fn pass(&self, input: &Array2<f32>) -> Array2<f32> {
+    pub fn pass(&self, input: &ArrayView2<f32>) -> Array2<f32> {
         // println!("Input:\n{}", input);
         let mut product = input.dot(&self.weights);
         let biases_reshaped = self.biases.clone().insert_axis(ndarray::Axis(0));
         product += &biases_reshaped;
-        activate(self.activation_function, &mut product);
+        activate_2d(self.activation_function, &mut product);
         // println!("Output:\n{}", product);
         product
     }
 
-    pub fn backpropagate(&mut self, input: &Array2<f32>, my_output: &Array2<f32>, error: &Array2<f32>) -> Array2<f32> {
-        let dl_da = error.clone();
-        // Calculate derivative at the correct point
-        let mut derivative = input.dot(&self.weights);
-        let biases_reshaped = self.biases.clone().insert_axis(ndarray::Axis(0));
-        derivative += &biases_reshaped;
-        activation_derivative(self.activation_function, &mut derivative); // Apply derivative here
+    pub fn backpropagate(&mut self, input: &ArrayView2<f32>, my_output: &ArrayView2<f32>, error: &ArrayView2<f32>) -> Array2<f32> {
+       let mut derivative = my_output.to_owned();
+        activation_derivative_2d(self.activation_function, &mut derivative);
+
+        let dl_da = *error;
         let grad = &dl_da * &derivative;
-        // println!("Grad:\n{}\n", grad);
+
         let output = grad.dot(&self.weights.t());
         
         let mut weight_gradients = input.t().dot(&grad);
@@ -106,12 +101,12 @@ impl DenseLayer {
     pub fn get_lambda(&self) -> f32 {
         self.lambda
     }
-    pub fn set_weights(&mut self, weights: &Array2<f32>) {
-        self.weights = weights.clone();
+    pub fn set_weights(&mut self, weights: &ArrayView2<f32>) {
+        self.weights = weights.to_owned();
     }
 
-    pub fn set_biases(&mut self, biases: &Array1<f32>) {
-        self.biases = biases.clone();
+    pub fn set_biases(&mut self, biases: &ArrayView1<f32>) {
+        self.biases = biases.to_owned();
     }
 
     pub fn get_parameters(&self) -> (&Array2<f32>, &Array1<f32>) {

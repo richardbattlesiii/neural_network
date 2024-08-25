@@ -13,11 +13,13 @@ use std::io::{IoSlice, Write};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use helpers::activation_functions;
+use layers::convolutional_layer;
+use networks::convolutional_net::ConvolutionalNet;
 use rand::{random, Rng};
 use std::f32::consts::TAU;
 use std::time::{Instant, Duration};
 use flow::flow_ai::{self, convert, COLORS, PUZZLE_WIDTH};
-use ndarray::{Array2, s};
+use ndarray::prelude::*;
 use networks::dense_net::DenseNet;
 
 /**
@@ -140,11 +142,11 @@ static EPOCH_INCREASE:u32 = 1;
     Printing interval -- number of epochs between status updates.
     Not used in genetic algorithm.
 */
-const PRINTERVAL:u32 = 10;
+const PRINTERVAL:u32 = 1;
 
 ///Max number of epochs.
 ///Note that in the genetic algorithm, this is per generation.
-static MAX_EPOCHS:u32 = 10000000;
+static MAX_EPOCHS:u32 = 10;
 
 ///How many puzzles to train on.
 ///Will panic if the total number of puzzles is above the number of lines in the input text file (see flow_ai).
@@ -161,8 +163,9 @@ static REGENERATE_PUZZLES_INTERVAL:u32 = 2000;
 const NUM_PRINTS_PER_GENERATION:u32 = 10;
 
 fn main() {
+    make_convolutional_net();
     //xor();
-    make_regular_dense_net(ROSE_DECAY_LEARNING_RATE, (0.0,0.0,0.0));
+    //make_regular_dense_net(ROSE_DECAY_LEARNING_RATE, (0.0,0.0,0.0));
     //genetic_algorithm();
 
     // let best_ever_loss = f32::MAX;
@@ -206,14 +209,14 @@ fn xor() {
     dn.set_learning_rate(0.3);
     let mut training_error = -1.0;
     for i in 0..MAX_EPOCHS {
-        training_error = dn.backpropagate(&inputs, &labels);
+        training_error = dn.backpropagate(&inputs.view(), &labels.view());
         // for j in 0..4 {
         //     training_error = dn.backpropagate(&inputs.slice(s![j..j+1, 0..2]).to_owned(), &labels.slice(s![j..j+1, 0..2]).to_owned());
         // }
         //println!("Training error: {}", training_error);
     }
     println!("{}", training_error);
-    println!("{}", dn.predict(&inputs));
+    println!("{}", dn.predict(&inputs.view()));
 }
 
 
@@ -223,8 +226,8 @@ fn xor() {
 fn make_regular_dense_net(learning_rate_change_method: u8, parameters: (f32, f32, f32)) -> f32 {
     //Get a Matrix for the puzzles and their solutions.
     //Shape is [number of puzzles X IO_SIZE]
-    let (training_puzzles, training_solutions) = flow_ai::generate_puzzles(NUM_TRAINING_PUZZLES);
-    let (testing_puzzles, testing_solutions) = flow_ai::generate_puzzles(NUM_TESTING_PUZZLES);
+    let (training_puzzles, training_solutions) = flow_ai::generate_puzzles_1d(NUM_TRAINING_PUZZLES);
+    let (testing_puzzles, testing_solutions) = flow_ai::generate_puzzles_1d(NUM_TESTING_PUZZLES);
     
     //Make a DenseNet with the constant layer sizes & activation functions.
     let mut dn = DenseNet::new_with_arrays(&LAYER_SIZES, &ACTIVATION_FUNCTIONS);
@@ -239,8 +242,8 @@ fn make_regular_dense_net(learning_rate_change_method: u8, parameters: (f32, f32
     for epoch in 0..MAX_EPOCHS+1 {
         //Regenerate the puzzles every once in a while because it doesn't take that long.
         if epoch % REGENERATE_PUZZLES_INTERVAL == 0 && epoch > 0 {
-            let (training_puzzles, training_solutions) = flow_ai::generate_puzzles(NUM_TRAINING_PUZZLES);
-            let (testing_puzzles, testing_solutions) = flow_ai::generate_puzzles(NUM_TESTING_PUZZLES);
+            let (training_puzzles, training_solutions) = flow_ai::generate_puzzles_1d(NUM_TRAINING_PUZZLES);
+            let (testing_puzzles, testing_solutions) = flow_ai::generate_puzzles_1d(NUM_TESTING_PUZZLES);
         }
         
         //Use the specified learning rate change method to update the learning rate, and print out what it is.
@@ -276,11 +279,11 @@ fn make_regular_dense_net(learning_rate_change_method: u8, parameters: (f32, f32
         }
 
         //Train the net.
-        let training_loss = dn.backpropagate(&training_puzzles, &training_solutions);
+        let training_loss = dn.backpropagate(&training_puzzles.view(), &training_solutions.view());
 
         //Print the progress, finding the MSE of predictions on the test puzzles
         if epoch % PRINTERVAL == 0 {
-            let average_loss = test_net(&dn, &testing_puzzles, &testing_solutions);
+            let average_loss = test_dense_net(&dn, &testing_puzzles, &testing_solutions);
             println!("Change method: {}, Epoch: {},\tTesting Loss: {:8.4},  \tTraining Loss: {:8.4}", learning_rate_change_method, epoch, average_loss, training_loss);
             if epoch % (PRINTERVAL*10) == 0 {
                 test_net_specific(&dn, &testing_puzzles, &testing_solutions);
@@ -300,11 +303,44 @@ fn make_regular_dense_net(learning_rate_change_method: u8, parameters: (f32, f32
         
     }
     test_net_specific(&dn, &testing_puzzles, &testing_solutions);
-    test_net(&dn, &testing_puzzles, &testing_solutions)
+    test_dense_net(&dn, &testing_puzzles, &testing_solutions)
 
     // //Print how long it took.
     // let duration = start.elapsed().as_millis();
     // println!("Finished in {}ms.", duration);
+}
+
+fn make_convolutional_net() {
+    let (training_puzzles, training_solutions) = flow_ai::generate_puzzles_3d(NUM_TRAINING_PUZZLES);
+    let (testing_puzzles, testing_solutions) = flow_ai::generate_puzzles_3d(NUM_TESTING_PUZZLES);
+
+    let mut cn = ConvolutionalNet::new(
+        PUZZLE_WIDTH, //Image size
+        COLORS, //Input channels
+        &[32, 64], //Num filters
+        &[3, 3], //Filter sizes
+        &[64*PUZZLE_WIDTH*PUZZLE_WIDTH, COLORS*PUZZLE_WIDTH*PUZZLE_WIDTH], //Dense layer sizes
+        &[0, 0, 1]); //Activation functions
+    cn.initialize();
+    cn.set_learning_rate(0.3);
+    let start = Instant::now();
+    for epoch in 0..MAX_EPOCHS {
+        let training_error = cn.back_prop(&training_puzzles.view(), &training_solutions.view());
+        if epoch % PRINTERVAL == 0 {
+            let prediction = cn.predict(&testing_puzzles.view());
+            let testing_error = ConvolutionalNet::calculate_bce_loss(&prediction.view(), &testing_solutions.view());
+            println!("Epoch: {},\tTraining Error: {:6.4}, \tTesting Error: {:6.4}", epoch, training_error, testing_error);
+            if epoch % (PRINTERVAL*10) == 0 && epoch != 0 {
+                let puzzle_num = (rand::random::<f32>() * prediction.nrows() as f32) as usize;
+                let predicted_grid = predict_from_one_hot(&prediction.slice(s![puzzle_num, ..]));
+                let solution_grid = predict_from_one_hot(&testing_solutions.slice(s![puzzle_num, ..]));
+                println!("Solution:\n{}\n\nPrediction:\n{}\n\n", solution_grid, predicted_grid);
+                print_confidence_in_right_answer(&prediction.slice(s![puzzle_num..puzzle_num+1, ..]), &testing_solutions.slice(s![puzzle_num..puzzle_num+1, ..]));
+            }
+        }
+    }
+    let duration = start.elapsed().as_millis();
+    println!("Done in {}ms.", duration);
 }
 
 //Uses multiple threads, each training the same neural net but with noise added
@@ -370,7 +406,7 @@ fn genetic_algorithm() {
                             == 0 {
                         println!("\t{}%...", epoch*100/(MAX_EPOCHS+EPOCH_INCREASE*i));
                     }
-                    result = dn.backpropagate(&puzzles, &solutions);
+                    result = dn.backpropagate(&puzzles.view(), &solutions.view());
                 }
 
                 //Get the test puzzles, same as the training puzzles but starting after the index they ended
@@ -380,7 +416,7 @@ fn genetic_algorithm() {
                 drop(puzzle_tuple_thread);
                 
                 //Test the net and find the average loss over the testing puzzles
-                let final_loss = test_net(&dn, &test_puzzles, &test_solutions);
+                let final_loss = test_dense_net(&dn, &test_puzzles, &test_solutions);
                 //Means "variable named 'best' but for this thread" not "the thread that is the best"
                 let mut best_thread = best.lock().unwrap();
                 //Check if this thread did a better job, if so, update best and print the results.
@@ -431,10 +467,10 @@ fn genetic_algorithm() {
     let mut final_loss = 0.0;
     for test_puzzle_num in 0..NUM_TESTING_PUZZLES {
         let test_puzzle = test_puzzles.slice(s![test_puzzle_num..test_puzzle_num+1, 0..IO_SIZE]).to_owned();
-        let test_prediction = best.predict(&test_puzzle);
+        let test_prediction = best.predict(&test_puzzle.view());
         let test_solution = test_solutions.slice(s![test_puzzle_num..test_puzzle_num+1, 0..IO_SIZE]).to_owned();
         //TODO: change to BCE after switching to one-hot
-        let loss = best.calculate_bce_loss(&test_prediction, &test_solution);
+        let loss = best.calculate_bce_loss(&test_prediction.view(), &test_solution.view());
         final_loss += loss;
     }
     final_loss /= NUM_TESTING_PUZZLES as f32;
@@ -450,8 +486,8 @@ fn genetic_algorithm() {
     // // println!("Time elapsed: {} ms", duration.as_millis());
 }
 
-fn test_net(dn: &DenseNet, testing_puzzles: &Array2<f32>, testing_solutions: &Array2<f32>) -> f32 {
-    dn.calculate_bce_loss(&dn.predict(testing_puzzles), testing_solutions)
+fn test_dense_net(dn: &DenseNet, testing_puzzles: &Array2<f32>, testing_solutions: &Array2<f32>) -> f32 {
+    dn.calculate_bce_loss(&dn.predict(&testing_puzzles.view()).view(), &testing_solutions.view())
 }
 
 fn test_net_specific(dn: &DenseNet, puzzles: &Array2<f32>, solutions: &Array2<f32>) {
@@ -460,26 +496,26 @@ fn test_net_specific(dn: &DenseNet, puzzles: &Array2<f32>, solutions: &Array2<f3
     let puzzle_num = (randy*(puzzles.nrows() as f32)) as usize;
     let puzzle = puzzles.slice(s![puzzle_num..puzzle_num+1, 0..IO_SIZE]).to_owned();
     let solution = solutions.slice(s![puzzle_num..puzzle_num+1, 0..IO_SIZE]).to_owned();
-    let prediction = dn.predict(&puzzle);
+    let prediction = dn.predict(&puzzle.view());
     // println!("{}", solution);
     // println!("{}", prediction);
-    let converted_solution = predict_from_one_hot(&solution);
-    let converted_prediction = predict_from_one_hot(&prediction);
+    let converted_solution = predict_from_one_hot(&solution.slice(s![0, ..]));
+    let converted_prediction = predict_from_one_hot(&prediction.slice(s![0, ..]));
     //Print out the solution vs the prediction of the puzzle,
     //to see how good (or more likely bad) the net really is at Flow Free.
     println!("{}", converted_solution);
     println!("{}", converted_prediction);
-    print_confidence_in_right_answer(&prediction, &solution);
+    print_confidence_in_right_answer(&prediction.view(), &solution.view());
 }
 
-fn predict_from_one_hot(prediction: &Array2<f32>) -> Array2<f32> {
+fn predict_from_one_hot(prediction: &ArrayView1<f32>) -> Array2<f32> {
     let mut output = Array2::zeros((PUZZLE_WIDTH, PUZZLE_WIDTH));
     for row in 0..output.nrows() {
         for col in 0..output.ncols() {
             let mut highest_value = -1.0;
             let mut best_color = -1.0;
             for color in 0..COLORS {
-                let pred = prediction[[0, row*PUZZLE_WIDTH*COLORS + col*COLORS + color]];
+                let pred = prediction[[row*PUZZLE_WIDTH*COLORS + col*COLORS + color]];
                 if pred > highest_value {
                     best_color = color as f32;
                     highest_value = pred;
@@ -518,7 +554,7 @@ fn interpolate_by_halves(iterations: u32) -> f32 {
     0.0
 }
 
-fn print_confidence_in_right_answer(prediction: &Array2<f32>, solution: &Array2<f32>) {
+fn print_confidence_in_right_answer(prediction: &ArrayView2<f32>, solution: &ArrayView2<f32>) {
     let debug = false;
     //Loop over the puzzles
     for row in 0..prediction.nrows() {

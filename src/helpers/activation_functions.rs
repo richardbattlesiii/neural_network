@@ -4,79 +4,84 @@ pub const RELU:u8 = 0;
 pub const SIGMOID:u8 = 1;
 pub const TANH:u8 = 2;
 
-pub fn activate(function_to_use: u8, input: &mut Array2<f32>) {
+pub fn activate(function_to_use: u8, input: f32) -> f32 {
     match function_to_use {
         RELU => relu(input),
-        SIGMOID => simgoid(input),
+        SIGMOID => sigmoid(input),
         TANH => tanh(input),
         _ => panic!("Invalid activation function.")
     }
 }
 
-fn relu(input: &mut Array2<f32>) {
+pub fn activate_2d(function_to_use: u8, input: &mut Array2<f32>) {
     for row in 0..input.nrows() {
         for col in 0..input.ncols() {
-            if input[[row, col]] < 0.0 {
-                input[[row, col]] *= 0.001;
+            match function_to_use {
+                RELU => input[[row, col]] = relu(input[[row, col]]),
+                SIGMOID => input[[row, col]] = sigmoid(input[[row, col]]),
+                TANH => input[[row, col]] = tanh(input[[row, col]]),
+                _ => panic!("Invalid activation function.")
             }
         }
     }
 }
 
-fn simgoid(input: &mut Array2<f32>) {
-    for row in 0..input.nrows() {
-        for col in 0..input.ncols() {
-            input[[row, col]] = 1.0/(1.0+(-input[[row, col]]).exp());
-        }
+fn relu(input: f32) -> f32 {
+    if input < 0.0 {
+        0.001*input
+    }
+    else {
+        input
     }
 }
 
-fn tanh(input: &mut Array2<f32>) {
-    for row in 0..input.nrows() {
-        for col in 0..input.ncols() {
-            input[[row, col]] = input[[row, col]].tanh();
-        }
-    }
+fn sigmoid(input: f32) -> f32 {
+    1.0/(1.0+(-input).exp())
+}
+
+fn tanh(input: f32) -> f32 {
+    input.tanh()
 }
 
 
 
-pub fn activation_derivative(function_to_use: u8, input: &mut Array2<f32>){
+pub fn activation_derivative(function_to_use: u8, input: f32) -> f32 {
     match function_to_use {
         RELU => relu_derivative(input),
-        SIGMOID => simgoid_derivative(input),
+        SIGMOID => sigmoid_derivative(input),
         TANH => tanh_derivative(input),
-        _ => panic!("Invalid actiavtion function.")
+        _ => panic!("Invalid activation function.")
     }
 }
 
-fn relu_derivative(input: &mut Array2<f32>){
+pub fn activation_derivative_2d(function_to_use: u8, input: &mut Array2<f32>) {
     for row in 0..input.nrows() {
         for col in 0..input.ncols() {
-            if input[[row, col]] < 0.0 {
-                input[[row, col]] = 0.001;
+            match function_to_use {
+                RELU => input[[row, col]] = relu_derivative(input[[row, col]]),
+                SIGMOID => input[[row, col]] = sigmoid_derivative(input[[row, col]]),
+                TANH => input[[row, col]] = tanh_derivative(input[[row, col]]),
+                _ => panic!("Invalid activation function.")
             }
-            else {
-                input[[row, col]] = 1.0;
-            }
         }
     }
 }
 
-fn simgoid_derivative(input: &mut Array2<f32>){
-    for row in 0..input.nrows() {
-        for col in 0..input.ncols() {
-            let sigmoid = 1.0/(1.0+(-input[[row, col]]).exp());
-            input[[row, col]] = sigmoid*(1.0-sigmoid);
-        }
+fn relu_derivative(input: f32) -> f32 {
+    if input < 0.0 {
+        0.001
+    }
+    else {
+        1.0
     }
 }
 
-fn tanh_derivative(input: &mut Array2<f32>){
-    for row in 0..input.nrows() {
-        for col in 0..input.ncols() {
-            let tanh = input[[row, col]].tanh();
-            input[[row, col]] = 1.0 - tanh*tanh;
-        }
-    }
+fn sigmoid_derivative(input: f32) -> f32 {
+    let sigmoid = sigmoid(input);
+    sigmoid*(1.0-sigmoid)
+}
+
+fn tanh_derivative(input: f32) -> f32 {
+    let tanh = tanh(input);
+    1.0 - tanh*tanh
 }

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Read};
-use ndarray::{Array1, Array2};
+use ndarray::{Array1, Array2, Array3, Array4, Axis};
 use rand::{random, Rng};
 use rand::seq::SliceRandom;
 
@@ -76,7 +76,8 @@ pub fn convert() -> io::Result<(Array2<f32>, Array2<f32>)> {
     Ok((puzzles_output, solutions_output))
 }
 
-pub fn generate_puzzles(num_puzzles: usize) -> (Array2<f32>, Array2<f32>) {
+///Generates one-hot encoded puzzles, where each puzzle is 1d.
+pub fn generate_puzzles_1d(num_puzzles: usize) -> (Array2<f32>, Array2<f32>) {
     // println!("Generating puzzles...");
     let mut puzzles: Array2<f32> = Array2::zeros((0, PUZZLE_WIDTH*PUZZLE_WIDTH*COLORS));
     let mut solutions: Array2<f32> = Array2::zeros((0, PUZZLE_WIDTH*PUZZLE_WIDTH*COLORS));
@@ -95,6 +96,28 @@ pub fn generate_puzzles(num_puzzles: usize) -> (Array2<f32>, Array2<f32>) {
     }
     // println!("100%");
     //println!("{}\n\n{}", puzzles.row(0), solutions.row(0));
+    (puzzles, solutions)
+}
+
+///Generates 3d puzzles where the first dimensions is a channel for each possible color.
+pub fn generate_puzzles_3d(num_puzzles: usize) -> (Array4<f32>, Array2<f32>) {
+    println!("Generating puzzles...");
+    let mut puzzles: Array4<f32> = Array4::zeros((0, COLORS, PUZZLE_WIDTH, PUZZLE_WIDTH));
+    let mut solutions: Array2<f32> = Array2::zeros((0, COLORS*PUZZLE_WIDTH*PUZZLE_WIDTH));
+    for puzzle_num in 0..num_puzzles {
+        if puzzle_num % (num_puzzles / 5) == 0 {
+            println!("{}%...", ((puzzle_num * 100 / num_puzzles) as f32 / 5.0).round() * 5.0);
+        }
+        let solution_2d = generate_solution();
+        let puzzle_2d = remove_solution(&solution_2d);
+
+        let solution_1d = one_hot_encode(&solution_2d);
+        let puzzle_3d = convert_to_channels(&puzzle_2d);
+
+        solutions.push(Axis(0), solution_1d.view()).unwrap();
+        puzzles.push(Axis(0), puzzle_3d.view()).unwrap();
+    }
+    // println!("{}\n\n{}", puzzles.row(0), solutions.row(0));
     (puzzles, solutions)
 }
 
@@ -436,5 +459,20 @@ fn one_hot_encode(grid: &Array2<f32>) -> Array1<f32> {
         }
     }
 
+    output
+}
+
+fn convert_to_channels(grid: &Array2<f32>) -> Array3<f32> {
+    let mut output: Array3<f32> = Array3::zeros((COLORS, PUZZLE_WIDTH, PUZZLE_WIDTH));
+
+    for color in 0..COLORS {
+        for x in 0..PUZZLE_WIDTH {
+            for y in 0..PUZZLE_WIDTH {
+                if grid[[x, y]] == color as f32 {
+                    output[[color, x, y]] = 1.0;
+                }
+            }
+        }
+    }
     output
 }

@@ -1,6 +1,6 @@
 use crate::*;
 use layers::{dense_layer::DenseLayer, softmax_layer};
-use ndarray::{Array1, Array2};
+use ndarray::{Array1, ArrayView1, Array2, ArrayView2};
 use ndarray_rand::RandomExt;
 use rand::distributions::Uniform;
 #[derive(Default)]
@@ -89,7 +89,7 @@ impl DenseNet {
     }
 
     //Will use eventually in combination with reading parameters from a text file
-    pub fn set_parameters_manually(&mut self, weights: &[Array2<f32>], biases: &[Array1<f32>]) {
+    pub fn set_parameters_manually(&mut self, weights: &[ArrayView2<f32>], biases: &[ArrayView1<f32>]) {
         for layer in 0..self.num_layers {
             self.layers[layer].set_weights(&weights[layer]);
             self.layers[layer].set_biases(&biases[layer]);
@@ -106,12 +106,12 @@ impl DenseNet {
     }
 
     //Returns the output from each layer.
-    pub fn forward_pass(&self, input: &Array2<f32>) -> Vec<Array2<f32>> {
-        let mut all_outputs = vec![];
-        all_outputs.push(input.clone());
+    pub fn forward_pass(&self, input: &ArrayView2<f32>) -> Vec<Array2<f32>> {
+        let mut all_outputs: Vec<Array2<f32>> = vec![];
+        all_outputs.push(input.to_owned());
         for layer in 0..self.num_layers {
             //Pass the previous output through the current layer
-            let mut passed = self.layers[layer].pass(&all_outputs[layer]);
+            let mut passed = self.layers[layer].pass(&all_outputs[layer].view());
             dropout(&mut passed);
             all_outputs.push(passed);
         }
@@ -120,12 +120,12 @@ impl DenseNet {
         all_outputs
     }
     
-    pub fn predict(&self, input: &Array2<f32>) -> Array2<f32> {
+    pub fn predict(&self, input: &ArrayView2<f32>) -> Array2<f32> {
         let outputs = self.forward_pass(input);
         outputs[self.num_layers+1].clone()
     }
 
-    pub fn backpropagate(&mut self, input: &Array2<f32>, label: &Array2<f32>) -> f32 {
+    pub fn backpropagate(&mut self, input: &ArrayView2<f32>, label: &ArrayView2<f32>) -> f32 {
         let all_outputs = self.forward_pass(input);
 
         //Get the softmax output
@@ -136,7 +136,7 @@ impl DenseNet {
         current_error -= label;
 
         //Calculate the loss
-        let loss = self.calculate_bce_loss(softmax_output, label);
+        let loss = self.calculate_bce_loss(&softmax_output.view(), label);
         if f32::is_nan(loss) {
             println!("Output:\n{}, Label:\n{}", softmax_output, label);
             panic!();
@@ -145,7 +145,8 @@ impl DenseNet {
         for layer in (0..self.num_layers).rev() {
             let current_layer = &mut self.layers[layer];
             // Propagate error through activation derivative
-            current_error = current_layer.backpropagate(&all_outputs[layer], &all_outputs[layer + 1], &current_error);
+            current_error = current_layer.backpropagate(&all_outputs[layer].view(),
+                    &all_outputs[layer + 1].view(), &current_error.view());
         }
 
         loss
@@ -157,7 +158,7 @@ impl DenseNet {
         }
     }
     
-    pub fn calculate_bce_loss(&self, predictions: &Array2<f32>, labels: &Array2<f32>) -> f32 {
+    pub fn calculate_bce_loss(&self, predictions: &ArrayView2<f32>, labels: &ArrayView2<f32>) -> f32 {
         let mut loss = 0.0;
         for i in 0..labels.nrows() {
             for j in 0..labels.ncols() {
