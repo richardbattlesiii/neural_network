@@ -1,12 +1,14 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Read};
+use std::sync::{Arc, Mutex};
+use std::{thread, thread::JoinHandle};
 use ndarray::{Array1, Array2, Array3, Array4, Axis};
 use rand::{random, Rng};
 use rand::seq::SliceRandom;
 
 
-pub const PUZZLE_WIDTH: usize = 6;
+pub const PUZZLE_WIDTH: usize = 10;
 pub const COLORS: usize = PUZZLE_WIDTH*PUZZLE_WIDTH/2+2;
 pub const KEY: &str = "-0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ`~!@#$%^&*()=+;':\"[]\\{}|";
 pub fn convert() -> io::Result<(Array2<f32>, Array2<f32>)> {
@@ -100,24 +102,49 @@ pub fn generate_puzzles_1d(num_puzzles: usize) -> (Array2<f32>, Array2<f32>) {
 }
 
 ///Generates 3d puzzles where the first dimensions is a channel for each possible color.
-pub fn generate_puzzles_3d(num_puzzles: usize) -> (Array4<f32>, Array2<f32>) {
-    println!("Generating puzzles...");
-    let mut puzzles: Array4<f32> = Array4::zeros((0, COLORS, PUZZLE_WIDTH, PUZZLE_WIDTH));
-    let mut solutions: Array2<f32> = Array2::zeros((0, COLORS*PUZZLE_WIDTH*PUZZLE_WIDTH));
+pub fn generate_puzzles_3d(num_puzzles: usize, num_threads: u8) -> (Array4<f32>, Array2<f32>) {
+    let print_progress = true;
+    if print_progress {
+        println!("Generating puzzles...");
+    }
+    let puzzles: Arc<Mutex<Array4<f32>>> = Arc::new(Mutex::new(Array4::zeros((0, COLORS, PUZZLE_WIDTH, PUZZLE_WIDTH))));
+    let solutions: Arc<Mutex<Array2<f32>>> = Arc::new(Mutex::new(Array2::zeros((0, COLORS*PUZZLE_WIDTH*PUZZLE_WIDTH))));
+    let mut handles: Vec<JoinHandle<()>> = vec![];
+    if num_threads == 0 {
+        panic!("What do you expect me to do with no threads?");
+    }
     for puzzle_num in 0..num_puzzles {
-        if puzzle_num % (num_puzzles / 5) == 0 {
-            println!("{}%...", ((puzzle_num * 100 / num_puzzles) as f32 / 5.0).round() * 5.0);
+        if handles.len() >= num_threads as usize {
+            handles.remove(0).join().expect("Thread failed to join.");
         }
-        let solution_2d = generate_solution();
-        let puzzle_2d = remove_solution(&solution_2d);
 
-        let solution_1d = one_hot_encode(&solution_2d);
-        let puzzle_3d = convert_to_channels(&puzzle_2d);
+        let puzzles = Arc::clone(&puzzles);
+        let solutions = Arc::clone(&solutions);
+        let handle = thread::spawn(move || {
+            if print_progress && puzzle_num % (num_puzzles / 5) == 0 {
+                println!("{}%...", ((puzzle_num * 100 / num_puzzles) as f32 / 5.0).round() * 5.0);
+            }
 
-        solutions.push(Axis(0), solution_1d.view()).unwrap();
-        puzzles.push(Axis(0), puzzle_3d.view()).unwrap();
+            let solution_2d = generate_solution();
+            let puzzle_2d = remove_solution(&solution_2d);
+    
+            let solution_1d = one_hot_encode(&solution_2d);
+            let puzzle_3d = convert_to_channels(&puzzle_2d);
+    
+            let mut solutions = solutions.lock().unwrap();
+            let mut puzzles = puzzles.lock().unwrap();
+            
+            solutions.push(Axis(0), solution_1d.view()).unwrap();
+            puzzles.push(Axis(0), puzzle_3d.view()).unwrap();
+        });
+        handles.push(handle);
+    }
+    for handle in handles {
+        handle.join().unwrap();
     }
     // println!("{}\n\n{}", puzzles.row(0), solutions.row(0));
+    let puzzles = Arc::try_unwrap(puzzles).unwrap().into_inner().unwrap();
+    let solutions = Arc::try_unwrap(solutions).unwrap().into_inner().unwrap();
     (puzzles, solutions)
 }
 
@@ -158,16 +185,16 @@ pub fn generate_solution() -> Array2<f32> {
             println!("Generating path from ({}, {}) to ({}, {}).", x1, y1, x2, y2);
             println!("Path will be in this group: {:?}", group);
         }
-        let path: Vec<(usize, usize)> = vec![(x1, y1)];
-        let path = generate_path(group, &path, (x1, y1), (x2, y2), (grid.nrows(), grid.ncols()));
+        let mut path: Vec<(usize, usize)> = vec![(x1, y1)];
+        let path = generate_path(group, &mut path, (x1, y1), (x2, y2), (grid.nrows(), grid.ncols()));
 
         //Empty path means it was impossible to generate (though that shouldn't be possible...)
-        if path.is_empty() {
+        if path.is_none() {
             panic!("Generated path was empty... how did that happen? Probably a bug in find_reachable.");
         }
 
         //Add the generated path to the grid.
-        for (current_x, current_y) in path {
+        for (current_x, current_y) in path.unwrap() {
             grid[[current_x, current_y]] = current_color as f32;
         }
         if debug {
@@ -206,17 +233,18 @@ pub fn generate_solution() -> Array2<f32> {
 
 fn generate_path(
         reachable: &Vec<(usize, usize)>,
-        path_so_far: &Vec<(usize, usize)>,
+        path_so_far: &mut Vec<(usize, usize)>,
         (x1, y1): (usize, usize),
         (x2, y2): (usize, usize),
         max_size: (usize, usize))
-        -> Vec<(usize, usize)> {
+        -> Option<Vec<(usize, usize)>> {
 
     let debug = false;
     if debug {
         println!("\tGoing from ({}, {}) to ({}, {}).", x1, y1, x2, y2);
         println!("\tI've been everywhere, man: {:?}", path_so_far);
     }
+
     //Get all the valid locations we can go to.
     //Array2s get printed in the format [-y, x] but I don't care.
     let mut directions = vec![];
@@ -242,7 +270,7 @@ fn generate_path(
         let len = path_so_far.len();
         let mut removed = false;
         if len > 1 && path_so_far[0..len-2].contains(&directions[i]) {
-            return vec![];
+            return None;
         }
         else if (!reachable.contains(&directions[i])) || path_so_far[path_so_far.len() - 1] == directions[i] {
             directions.remove(i);
@@ -266,12 +294,11 @@ fn generate_path(
             if debug {
                 println!("\tAdjacent to output node.");
             }
-            let mut output = path_so_far.clone();
-            output.push((x2, y2));
+            path_so_far.push((x2, y2));
             if debug {
-                println!("\tReturning {:?}.", output);
+                println!("\tReturning {:?}.", path_so_far);
             }
-            return output;
+            return Some(path_so_far.to_vec());
         }
     }
 
@@ -284,9 +311,9 @@ fn generate_path(
         let len = path_so_far.len();
         if len > 1 && path_so_far[0..len-2].contains(direction) {
             if debug {
-                println!("\tpath_so_far had an adjacent node -- {:?}", path_so_far);
+                println!("path_so_far was invalid.");
             }
-            return vec![];
+            return None;
         }
     }
 
@@ -298,20 +325,19 @@ fn generate_path(
         if debug {
             println!("Trying to go to {:?}", direction);
         }
-        let recursive_path = generate_path(reachable, &my_path, *direction, (x2, y2), max_size);
-        if !recursive_path.is_empty() {
+        let recursive_path = generate_path(reachable, &mut my_path, *direction, (x2, y2), max_size);
+        if !recursive_path.is_none() {
             if debug {
                 println!("Succeeded.");
             }
-            return recursive_path;
+            return Some(recursive_path.unwrap());
         }
         else if debug {
             println!("Failed to go to {:?}.", direction);
         }
     }
 
-    let nothing:Vec<(usize, usize)> = vec![];
-    nothing
+    None
 }
 
 fn find_reachable(grid: &Array2<f32>) -> Vec<Vec<(usize, usize)>> {
@@ -475,4 +501,104 @@ fn convert_to_channels(grid: &Array2<f32>) -> Array3<f32> {
         }
     }
     output
+}
+
+/// Checks if the coordinates are edging, meaning they are along the edge of the reachable tiles.
+fn is_edging((x, y): (usize, usize), reachable: &Vec<(usize, usize)>) -> bool {
+    //Right, up, left, down
+    let directions = [(1, 0), (0, 1), (-1, 0), (0, -1)];
+    
+    for (dx, dy) in directions.iter() {
+        let new_x = x as isize + dx;
+        let new_y = y as isize + dy;
+        
+        //Make sure the new coordinates aren't gonna cause an underflow
+        if new_x >= 0 && new_y >= 0 {
+            let neighbor = (new_x as usize, new_y as usize);
+            
+            //Check if the neighbor is invalid
+            if !reachable.contains(&neighbor) {
+                //we edging frfr on god
+                return true;
+            }
+        }
+    }
+    
+    false // (x, y) is not edging
+}
+
+///Returns a list of all edge tiles using iterator and filter magic
+fn find_edges(reachable: &Vec<(usize, usize)>) -> Vec<(usize, usize)> {
+    reachable
+        .iter()
+        .filter(|&&tile| is_edging(tile, reachable))
+        .cloned()
+        .collect()
+}
+
+///Finds a path along the edge between (x1, y1) and (x2, y2) if it exists, returns None otherwise
+fn edge_path(
+    reachable: &Vec<(usize, usize)>,
+    mut path_so_far: Vec<(usize, usize)>,
+    (x1, y1): (usize, usize),
+    (x2, y2): (usize, usize),
+) -> Option<Vec<(usize, usize)>> {
+    // Ensure both (x1, y1) and (x2, y2) are edging
+    if !is_edging((x1, y1), reachable) || !is_edging((x2, y2), reachable) {
+        return None; // One or both points are not edging
+    }
+
+    ///Depth-First Search (DFS) to find a path from the current tile to the target
+    fn dfs(
+        reachable: &Vec<(usize, usize)>,
+        path_so_far: &mut Vec<(usize, usize)>,
+        current: (usize, usize),
+        target: (usize, usize),
+        visited: &mut Vec<(usize, usize)>,
+    ) -> bool {
+        // Base case: if current tile is the target, path is found
+        if current == target {
+            return true;
+        }
+
+        //Right, up, left, down
+        let directions = [(1, 0), (0, 1), (-1, 0), (0, -1)];
+
+        for (dx, dy) in directions.iter() {
+            let next = (
+                (current.0 as isize + dx) as usize,
+                (current.1 as isize + dy) as usize,
+            );
+
+            //Keep going only if the next tile is reachable, not visited, and not already in the path
+            if reachable.contains(&next) && !visited.contains(&next) && !path_so_far.contains(&next)
+            {
+                //Mark the tile as visited and add it to the path
+                visited.push(next);
+                path_so_far.push(next);
+                
+                //Recursion time baybee
+                if dfs(reachable, path_so_far, next, target, visited) {
+                    return true;
+                }
+
+                //Backtrack if there's no path
+                path_so_far.pop();
+                visited.pop();
+            }
+        }
+
+        //No path found from the current tile
+        false
+    }
+
+    //Initialize visited list with the start tile & add it to the path
+    let mut visited = vec![(x1, y1)];
+    path_so_far.push((x1, y1));
+
+    if dfs(reachable, &mut path_so_far, (x1, y1), (x2, y2), &mut visited) {
+        Some(path_so_far)
+    } else {
+        None
+    }
 }

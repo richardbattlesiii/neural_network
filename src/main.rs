@@ -18,7 +18,7 @@ use networks::convolutional_net::ConvolutionalNet;
 use rand::{random, Rng};
 use std::f32::consts::TAU;
 use std::time::{Instant, Duration};
-use flow::flow_ai::{self, convert, COLORS, PUZZLE_WIDTH};
+use flow::flow_ai::{self, convert, generate_puzzles_3d, COLORS, PUZZLE_WIDTH};
 use ndarray::prelude::*;
 use networks::dense_net::DenseNet;
 
@@ -113,7 +113,7 @@ const LAMBDA: f32 = 0.2;
     Number of threads to use in genetic algorithm. Note that my cpu has 32 threads but that is... atypical.
     So if you run this make sure you change this unless you also have a lot of cores.
 */
-static NUM_THREADS:u32 = 12;
+static NUM_THREADS:u8 = 12;
 
 ///Number of layers, including input and output layers.
 ///Number of dense layers will be this minus one.
@@ -146,24 +146,27 @@ const PRINTERVAL:u32 = 1;
 
 ///Max number of epochs.
 ///Note that in the genetic algorithm, this is per generation.
-static MAX_EPOCHS:u32 = 10;
+static MAX_EPOCHS:u32 = 100000;
 
 ///How many puzzles to train on.
 ///Will panic if the total number of puzzles is above the number of lines in the input text file (see flow_ai).
-static NUM_TRAINING_PUZZLES:usize = 2048;
+static NUM_TRAINING_PUZZLES:usize = 200;
 
 ///How many puzzles to test on.
 ///Will panic if the total number of puzzles is above the number of lines in the input text file (see flow_ai).
-static NUM_TESTING_PUZZLES:usize = 2048;
+static NUM_TESTING_PUZZLES:usize = 1024;
 
 ///How often to regenerate the puzzles.
-static REGENERATE_PUZZLES_INTERVAL:u32 = 2000;
+static REGENERATE_PUZZLES_INTERVAL:u32 = 1000;
 
 ///How many times the genetic algorithm should print a progress update each generation.
 const NUM_PRINTS_PER_GENERATION:u32 = 10;
 
 fn main() {
-    make_convolutional_net();
+    let start = Instant::now();
+    generate_puzzles_3d(NUM_TRAINING_PUZZLES, NUM_THREADS);
+    println!("Finished in {:8.6}s.", start.elapsed().as_secs_f32());
+    //make_convolutional_net();
     //xor();
     //make_regular_dense_net(ROSE_DECAY_LEARNING_RATE, (0.0,0.0,0.0));
     //genetic_algorithm();
@@ -310,21 +313,26 @@ fn make_regular_dense_net(learning_rate_change_method: u8, parameters: (f32, f32
     // println!("Finished in {}ms.", duration);
 }
 
+//Like above, but with convolutional layers.
 fn make_convolutional_net() {
-    let (training_puzzles, training_solutions) = flow_ai::generate_puzzles_3d(NUM_TRAINING_PUZZLES);
-    let (testing_puzzles, testing_solutions) = flow_ai::generate_puzzles_3d(NUM_TESTING_PUZZLES);
+    let (training_puzzles, training_solutions) = flow_ai::generate_puzzles_3d(NUM_TRAINING_PUZZLES, NUM_THREADS);
+    let (testing_puzzles, testing_solutions) = flow_ai::generate_puzzles_3d(NUM_TESTING_PUZZLES, NUM_THREADS);
 
     let mut cn = ConvolutionalNet::new(
         PUZZLE_WIDTH, //Image size
         COLORS, //Input channels
         &[32, 64], //Num filters
         &[3, 3], //Filter sizes
-        &[64*PUZZLE_WIDTH*PUZZLE_WIDTH, COLORS*PUZZLE_WIDTH*PUZZLE_WIDTH], //Dense layer sizes
-        &[0, 0, 1]); //Activation functions
+        &[64*PUZZLE_WIDTH*PUZZLE_WIDTH, COLORS*PUZZLE_WIDTH*PUZZLE_WIDTH, COLORS*PUZZLE_WIDTH*PUZZLE_WIDTH], //Dense layer sizes
+        &[0, 0, 0, 1]); //Activation functions
     cn.initialize();
-    cn.set_learning_rate(0.3);
+    cn.set_learning_rate(0.1);
     let start = Instant::now();
     for epoch in 0..MAX_EPOCHS {
+        if epoch % REGENERATE_PUZZLES_INTERVAL == 0 && epoch != 0 {
+            let (training_puzzles, training_solutions) = flow_ai::generate_puzzles_3d(NUM_TRAINING_PUZZLES, NUM_THREADS);
+            let (testing_puzzles, testing_solutions) = flow_ai::generate_puzzles_3d(NUM_TESTING_PUZZLES, NUM_THREADS);
+        }
         let training_error = cn.back_prop(&training_puzzles.view(), &training_solutions.view());
         if epoch % PRINTERVAL == 0 {
             let prediction = cn.predict(&testing_puzzles.view());
@@ -334,7 +342,7 @@ fn make_convolutional_net() {
                 let puzzle_num = (rand::random::<f32>() * prediction.nrows() as f32) as usize;
                 let predicted_grid = predict_from_one_hot(&prediction.slice(s![puzzle_num, ..]));
                 let solution_grid = predict_from_one_hot(&testing_solutions.slice(s![puzzle_num, ..]));
-                println!("Solution:\n{}\n\nPrediction:\n{}\n\n", solution_grid, predicted_grid);
+                println!("Solution:\n{}\n\nPrediction:\n{}\n", solution_grid, predicted_grid);
                 print_confidence_in_right_answer(&prediction.slice(s![puzzle_num..puzzle_num+1, ..]), &testing_solutions.slice(s![puzzle_num..puzzle_num+1, ..]));
             }
         }
@@ -574,7 +582,7 @@ fn print_confidence_in_right_answer(prediction: &ArrayView2<f32>, solution: &Arr
         }
         //Take the average
         confidence /= (PUZZLE_WIDTH*PUZZLE_WIDTH) as f32;
-        println!("Average confidence in correct answer: {}", confidence);
+        println!("Average confidence in correct answer: {}\n", confidence);
     }
 }
 

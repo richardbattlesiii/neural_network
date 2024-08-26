@@ -122,6 +122,10 @@ impl ConvolutionalLayer {
     pub fn set_learning_rate(&mut self, rate: f32) {
         self.learning_rate = rate;
     }
+
+    pub fn get_weights_magnitude(&self) -> f32 {
+        (&self.filters * &self.filters).sum().sqrt()
+    }
 }
 
 pub fn convolve_and_slide(input: &ArrayView2<f32>, kernel: &ArrayView2<f32>, padding_mode: u8) -> Array2<f32> {

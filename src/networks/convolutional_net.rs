@@ -122,18 +122,18 @@ impl ConvolutionalNet {
             convolutional_outputs.push(current_output.clone());
         }
         let batch_size = input.dim().0;
-        let current_input = current_output.to_shape((batch_size, current_output.len()/batch_size)).unwrap();
+        let mut current_input = current_output.to_shape((batch_size, current_output.len()/batch_size)).unwrap().to_owned();
         let mut dense_outputs: Vec<Array2<f32>> = vec![];
         dense_outputs.push(current_input.to_owned());
         for layer_num in 0..self.num_dense_layers {
             if debug {
                 println!("Passing dense layer {} with input {:?}.", layer_num, current_input.shape());
             }
-            let current_input = self.dense_layers[layer_num].pass(&current_input.view());
+            current_input = self.dense_layers[layer_num].pass(&current_input.view());
             if debug {
                 println!("Output was {:?}.", current_input.shape());
             }
-            dense_outputs.push(current_input);
+            dense_outputs.push(current_input.clone());
         }
         (convolutional_outputs, dense_outputs)
     }
