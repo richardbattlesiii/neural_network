@@ -120,7 +120,7 @@ static NUM_THREADS:u8 = 12;
 const NUMBER_OF_LAYERS:usize = 5;
 
 ///The size of each layer. Has to be a const for ease of multithreading.
-const LAYER_SIZES: [usize; NUMBER_OF_LAYERS] = [IO_SIZE, 32, 32, 32, IO_SIZE];
+const LAYER_SIZES: [usize; NUMBER_OF_LAYERS] = [IO_SIZE, IO_SIZE/4, IO_SIZE/8, IO_SIZE/4, IO_SIZE];
 
 ///The activation function each layer should use. Has to be a const for ease of multithreading.
 const ACTIVATION_FUNCTIONS: [u8; NUMBER_OF_LAYERS-1] = [0, 0, 0, 0];
@@ -146,29 +146,29 @@ const PRINTERVAL:u32 = 1;
 
 ///Max number of epochs.
 ///Note that in the genetic algorithm, this is per generation.
-static MAX_EPOCHS:u32 = 100000;
+static MAX_EPOCHS:u32 = 100000000;
 
 ///How many puzzles to train on.
 ///Will panic if the total number of puzzles is above the number of lines in the input text file (see flow_ai).
-static NUM_TRAINING_PUZZLES:usize = 200;
+static NUM_TRAINING_PUZZLES:usize = 256;
 
 ///How many puzzles to test on.
 ///Will panic if the total number of puzzles is above the number of lines in the input text file (see flow_ai).
-static NUM_TESTING_PUZZLES:usize = 1024;
+static NUM_TESTING_PUZZLES:usize = 512;
 
 ///How often to regenerate the puzzles.
-static REGENERATE_PUZZLES_INTERVAL:u32 = 1000;
+static REGENERATE_PUZZLES_INTERVAL:u32 = 20;
 
 ///How many times the genetic algorithm should print a progress update each generation.
 const NUM_PRINTS_PER_GENERATION:u32 = 10;
 
 fn main() {
-    let start = Instant::now();
-    generate_puzzles_3d(NUM_TRAINING_PUZZLES, NUM_THREADS);
-    println!("Finished in {:8.6}s.", start.elapsed().as_secs_f32());
+    //let start = Instant::now();
+    //generate_puzzles_3d(NUM_TRAINING_PUZZLES, NUM_THREADS);
+    //println!("Finished in {:8.6}s.", start.elapsed().as_secs_f32());
     //make_convolutional_net();
     //xor();
-    //make_regular_dense_net(ROSE_DECAY_LEARNING_RATE, (0.0,0.0,0.0));
+    make_convolutional_net();
     //genetic_algorithm();
 
     // let best_ever_loss = f32::MAX;
@@ -210,15 +210,15 @@ fn xor() {
     let mut dn = DenseNet::new_with_vectors(&layer_sizes, &activation_functions);
     dn.initialize();
     dn.set_learning_rate(0.3);
-    let mut training_error = -1.0;
+    let mut training_loss = -1.0;
     for i in 0..MAX_EPOCHS {
-        training_error = dn.backpropagate(&inputs.view(), &labels.view());
+        training_loss = dn.backpropagate(&inputs.view(), &labels.view());
         // for j in 0..4 {
-        //     training_error = dn.backpropagate(&inputs.slice(s![j..j+1, 0..2]).to_owned(), &labels.slice(s![j..j+1, 0..2]).to_owned());
+        //     training_loss = dn.backpropagate(&inputs.slice(s![j..j+1, 0..2]).to_owned(), &labels.slice(s![j..j+1, 0..2]).to_owned());
         // }
-        //println!("Training error: {}", training_error);
+        //println!("Training loss: {}", training_loss);
     }
-    println!("{}", training_error);
+    println!("{}", training_loss);
     println!("{}", dn.predict(&inputs.view()));
 }
 
@@ -229,7 +229,7 @@ fn xor() {
 fn make_regular_dense_net(learning_rate_change_method: u8, parameters: (f32, f32, f32)) -> f32 {
     //Get a Matrix for the puzzles and their solutions.
     //Shape is [number of puzzles X IO_SIZE]
-    let (training_puzzles, training_solutions) = flow_ai::generate_puzzles_1d(NUM_TRAINING_PUZZLES);
+    let ( mut training_puzzles, mut training_solutions) = flow_ai::generate_puzzles_1d(NUM_TRAINING_PUZZLES);
     let (testing_puzzles, testing_solutions) = flow_ai::generate_puzzles_1d(NUM_TESTING_PUZZLES);
     
     //Make a DenseNet with the constant layer sizes & activation functions.
@@ -245,8 +245,8 @@ fn make_regular_dense_net(learning_rate_change_method: u8, parameters: (f32, f32
     for epoch in 0..MAX_EPOCHS+1 {
         //Regenerate the puzzles every once in a while because it doesn't take that long.
         if epoch % REGENERATE_PUZZLES_INTERVAL == 0 && epoch > 0 {
-            let (training_puzzles, training_solutions) = flow_ai::generate_puzzles_1d(NUM_TRAINING_PUZZLES);
-            let (testing_puzzles, testing_solutions) = flow_ai::generate_puzzles_1d(NUM_TESTING_PUZZLES);
+            (training_puzzles, training_solutions) = flow_ai::generate_puzzles_1d(NUM_TRAINING_PUZZLES);
+            // (testing_puzzles, testing_solutions) = (training_puzzles.clone(), training_solutions.clone());
         }
         
         //Use the specified learning rate change method to update the learning rate, and print out what it is.
@@ -315,7 +315,7 @@ fn make_regular_dense_net(learning_rate_change_method: u8, parameters: (f32, f32
 
 //Like above, but with convolutional layers.
 fn make_convolutional_net() {
-    let (training_puzzles, training_solutions) = flow_ai::generate_puzzles_3d(NUM_TRAINING_PUZZLES, NUM_THREADS);
+    let (mut training_puzzles, mut training_solutions) = flow_ai::generate_puzzles_3d(NUM_TRAINING_PUZZLES, NUM_THREADS);
     let (testing_puzzles, testing_solutions) = flow_ai::generate_puzzles_3d(NUM_TESTING_PUZZLES, NUM_THREADS);
 
     let mut cn = ConvolutionalNet::new(
@@ -330,14 +330,14 @@ fn make_convolutional_net() {
     let start = Instant::now();
     for epoch in 0..MAX_EPOCHS {
         if epoch % REGENERATE_PUZZLES_INTERVAL == 0 && epoch != 0 {
-            let (training_puzzles, training_solutions) = flow_ai::generate_puzzles_3d(NUM_TRAINING_PUZZLES, NUM_THREADS);
-            let (testing_puzzles, testing_solutions) = flow_ai::generate_puzzles_3d(NUM_TESTING_PUZZLES, NUM_THREADS);
+            (training_puzzles, training_solutions) = flow_ai::generate_puzzles_3d(NUM_TRAINING_PUZZLES, NUM_THREADS);
+            //let (testing_puzzles, testing_solutions) = flow_ai::generate_puzzles_3d(NUM_TESTING_PUZZLES, NUM_THREADS);
         }
-        let training_error = cn.back_prop(&training_puzzles.view(), &training_solutions.view());
+        let training_loss = cn.back_prop(&training_puzzles.view(), &training_solutions.view());
         if epoch % PRINTERVAL == 0 {
             let prediction = cn.predict(&testing_puzzles.view());
-            let testing_error = ConvolutionalNet::calculate_bce_loss(&prediction.view(), &testing_solutions.view());
-            println!("Epoch: {},\tTraining Error: {:6.4}, \tTesting Error: {:6.4}", epoch, training_error, testing_error);
+            let testing_loss = ConvolutionalNet::calculate_bce_loss(&prediction.view(), &testing_solutions.view());
+            println!("Epoch: {},\tTraining Loss: {:6.4}, \tTesting Loss: {:6.4}", epoch, training_loss, testing_loss);
             if epoch % (PRINTERVAL*10) == 0 && epoch != 0 {
                 let puzzle_num = (rand::random::<f32>() * prediction.nrows() as f32) as usize;
                 let predicted_grid = predict_from_one_hot(&prediction.slice(s![puzzle_num, ..]));
