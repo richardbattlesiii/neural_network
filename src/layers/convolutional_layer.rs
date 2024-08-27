@@ -1,5 +1,4 @@
 use crate::helpers::{activation_functions::*, fft};
-use crate::helpers::fft::convolve;
 use rand::distributions::Uniform;
 use rand::prelude::Distribution;
 use ndarray::{s, Array1, Array2, Array4, ArrayView2, ArrayView4, Axis};
@@ -8,12 +7,17 @@ pub const PADDING_VALID:u8 = 0;
 pub const PADDING_SAME:u8 = 1;
 pub const PADDING_FULL:u8 = 2;
 
+pub const CONVOLUTION_BASIC:u8 = 0;
+pub const CONVOLUTION_FFT:u8 = 1;
+pub const CONVOLUTION_IM_2_COL:u8 = 2;
+
 pub struct ConvolutionalLayer {
     pub image_size:usize,
     pub input_channels:usize,
 
     pub learning_rate:f32,
     pub activation_function:u8,
+    convolution_method:u8,
 
     filters:Array4<f32>,
     biases:Array1<f32>,
@@ -29,6 +33,7 @@ impl ConvolutionalLayer {
             filter_size: usize,
             learning_rate: f32,
             activation_function: u8,
+            convolution_method: u8,
             ) -> ConvolutionalLayer {
 
         ConvolutionalLayer {
@@ -40,6 +45,7 @@ impl ConvolutionalLayer {
             biases: Array1::zeros(num_filters),
             num_filters,
             filter_size,
+            convolution_method,
         }
     }
 
@@ -134,7 +140,16 @@ impl ConvolutionalLayer {
     }
 }
 
-pub fn convolve_and_slide(input: &ArrayView2<f32>, kernel: &ArrayView2<f32>, padding_mode: u8) -> Array2<f32> {
+pub fn convolve(input: &ArrayView2<f32>, kernel: &ArrayView2<f32>, convolution_method: u8) -> Array2<f32> {
+    match convolution_method {
+        CONVOLUTION_BASIC => convolve_and_slide(input, kernel, PADDING_SAME),
+        CONVOLUTION_FFT => fft::convolve(input, kernel),
+        CONVOLUTION_IM_2_COL => im_2_col_convolve(input, kernel),
+        _ => panic!("Invalid convolution method."),
+    }
+}
+
+fn convolve_and_slide(input: &ArrayView2<f32>, kernel: &ArrayView2<f32>, padding_mode: u8) -> Array2<f32> {
     let image_size = input.dim().0;
     let kernel_size = kernel.dim().0;
     let filter_min = -(kernel_size as isize) / 2;
@@ -211,8 +226,7 @@ fn calculate_filter_gradients(input: &ArrayView2<f32>, dl_do: &ArrayView2<f32>, 
     gradients
 }
 
-///Aaaaaand it's slower than the basic method. Yippee!!!!!!!!
-pub fn im_2_col_convolve(input: &ArrayView2<f32>, kernel: &ArrayView2<f32>) -> Array2<f32> {
+fn im_2_col_convolve(input: &ArrayView2<f32>, kernel: &ArrayView2<f32>) -> Array2<f32> {
     let debug = false;
     let input_size = input.nrows();
     let kernel_size = kernel.nrows();

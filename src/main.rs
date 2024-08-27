@@ -172,7 +172,7 @@ fn main() {
     //println!("Finished in {:8.6}s.", start.elapsed().as_secs_f32());
     //make_convolutional_net();
     //xor();
-    make_convolutional_net();
+    //make_convolutional_net();
     // let image = Array2::from_shape_vec((3,3), vec![1.,2.,3.,4.,5.,6.,7.,8.,9.]).unwrap();
     // let kernel = Array2::from_shape_vec((3,3), vec![0.,0.,0.,0.,1.,1.,0.,0.,0.,]).unwrap();
     // println!("Image:\n{}\n\nKernel:\n{}\n", image, kernel,);
@@ -332,7 +332,8 @@ fn make_convolutional_net() {
         &[32, 64, 128], //Num filters
         &[3, 5, 5], //Filter sizes
         &[128*PUZZLE_WIDTH*PUZZLE_WIDTH, COLORS*PUZZLE_WIDTH*PUZZLE_WIDTH], //Dense layer sizes
-        &[0, 0, 0, 0, 0, 0, 0, 0]); //Activation functions
+        &[0, 0, 0, 0, 0, 0, 0, 0], //Activation functions
+        convolutional_layer::CONVOLUTION_BASIC); //Convolution method
     cn.initialize();
     cn.set_learning_rate(0.1);
     let start = Instant::now();
