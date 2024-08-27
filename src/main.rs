@@ -332,7 +332,8 @@ fn make_convolutional_net() {
         &[32, 64, 128], //Num filters
         &[3, 5, 5], //Filter sizes
         &[128*PUZZLE_WIDTH*PUZZLE_WIDTH, COLORS*PUZZLE_WIDTH*PUZZLE_WIDTH], //Dense layer sizes
-        &[0, 0, 0, 0, 0, 0, 0, 0]); //Activation functions
+        &[0, 0, 0, 0, 0, 0, 0, 0], //Activation functions
+        convolutional_layer::CONVOLUTION_BASIC); //Convolution method
     cn.initialize();
     cn.set_learning_rate(0.1);
     let start = Instant::now();

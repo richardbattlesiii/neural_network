@@ -16,7 +16,7 @@ pub struct ConvolutionalNet {
 
 impl ConvolutionalNet {
     ///Make a new ConvolutionalNet. Note that the convolutional layers are assumed to be square for the time being.
-    pub fn new(image_size: usize, input_channels: usize, num_filters: &[usize], filter_sizes: &[usize], dense_layer_sizes: &[usize], activation_functions: &[u8]) -> ConvolutionalNet {
+    pub fn new(image_size: usize, input_channels: usize, num_filters: &[usize], filter_sizes: &[usize], dense_layer_sizes: &[usize], activation_functions: &[u8], convolution_method: u8) -> ConvolutionalNet {
         let mut convolutional_layers = vec![];
         let num_convolutional_layers = num_filters.len();
         convolutional_layers.push(ConvolutionalLayer::new(
@@ -26,6 +26,7 @@ impl ConvolutionalNet {
             filter_sizes[0],
             0.1,
             activation_functions[0],
+            convolution_method,
         ));
         //println!("{} channels", convolutional_layers[0].input_channels);
         for cl_num in 1..num_convolutional_layers {
@@ -37,6 +38,7 @@ impl ConvolutionalNet {
                 filter_sizes[cl_num],
                 0.1,
                 activation_functions[cl_num],
+                convolution_method,
             ));
         }
 
