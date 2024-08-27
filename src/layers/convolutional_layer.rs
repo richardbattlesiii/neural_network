@@ -1,4 +1,5 @@
-use crate::helpers::activation_functions::*;
+use crate::helpers::{activation_functions::*, fft};
+use crate::helpers::fft::convolve;
 use rand::distributions::Uniform;
 use rand::prelude::Distribution;
 use ndarray::{s, Array1, Array2, Array4, ArrayView2, ArrayView4, Axis};
@@ -60,15 +61,16 @@ impl ConvolutionalLayer {
         for sample in 0..batch_size {
             let mut output_sample = output.index_axis_mut(Axis(0), sample);
             let input_sample = input.index_axis(Axis(0), sample);
+
             for filter_num in 0..self.num_filters {
                 let mut output_filter = output_sample.index_axis_mut(Axis(0), filter_num);
-                // println!("Output filter shape: {:?}", output_filter.shape());
                 let filter = self.filters.index_axis(Axis(0), filter_num);
+
                 for channel in 0..channels {
-                    // println!("Input sample shape: {:?}, Filter shape: {:?}", input_sample.shape(), filter.shape());
                     let input_channel = input_sample.index_axis(Axis(0), channel);
                     let filter_channel = filter.index_axis(Axis(0), channel);
-                    output_filter += &convolve_and_slide(&input_channel, &filter_channel, PADDING_SAME);
+                    let convolution = convolve_and_slide(&input_channel, &filter_channel, PADDING_SAME);
+                    output_filter += &convolution.to_shape((image_size, image_size)).unwrap();
                 }
             }
         }
@@ -86,16 +88,19 @@ impl ConvolutionalLayer {
         //dLoss/dInputs
         let mut output: Array4<f32> = Array4::zeros((num_samples, input_channels, image_size, image_size));
         //println!("Filters: {:?}", self.filters.shape());
+
         for sample in 0..num_samples {
             let sample_output = my_output.index_axis(Axis(0), sample);
             let sample_error = error.index_axis(Axis(0), sample);
             let sample_input = input.index_axis(Axis(0), sample);
+
             for filter_num in 0..self.num_filters {
                 //Calculate gradient of loss with respect to the non-activated output
                 let filter = self.filters.index_axis(Axis(0), filter_num);
                 let current_output = sample_output.index_axis(Axis(0), filter_num);
                 let mut derivative = current_output.to_owned();
                 activation_derivative_2d(self.activation_function, &mut derivative);
+
                 let current_error = sample_error.index_axis(Axis(0), filter_num);
                 let dl_do = &current_error * &derivative;
                 bias_gradients[[filter_num]] += dl_do.sum();
@@ -107,7 +112,8 @@ impl ConvolutionalLayer {
                     
                     let current_filter = filter.index_axis(Axis(0), channel);
                     let flipped = current_filter.slice(s![..;-1, ..;-1]);
-                    let current_output = convolve_and_slide(&current_input, &flipped, PADDING_SAME);
+                    let convolution = convolve_and_slide(&current_input, &flipped, PADDING_SAME);
+                    let current_output = convolution.to_shape((image_size, image_size)).unwrap();
                     output.slice_mut(s![sample, channel, .., ..]).assign(&current_output);
                 }
             }
@@ -203,4 +209,45 @@ fn calculate_filter_gradients(input: &ArrayView2<f32>, dl_do: &ArrayView2<f32>, 
     }
 
     gradients
+}
+
+///Aaaaaand it's slower than the basic method. Yippee!!!!!!!!
+pub fn im_2_col_convolve(input: &ArrayView2<f32>, kernel: &ArrayView2<f32>) -> Array2<f32> {
+    let debug = false;
+    let input_size = input.nrows();
+    let kernel_size = kernel.nrows();
+    let padded_input = fft::pad(input, input_size + kernel_size - 1);
+    if debug {
+        println!("Padded input:\n{}", padded_input);
+    }
+    // Calculate the number of columns (i.e., patches) in the output
+    let output_size = input_size * input_size;
+    let kernel_flat_size = kernel_size * kernel_size;
+
+    // Initialize the column_vectors matrix
+    let mut column_vectors: Array2<f32> = Array2::zeros((kernel_flat_size, output_size));
+
+    // Iterate over all the patches using `.windows()` and flatten them directly into column_vectors
+    for (i, window) in padded_input.windows((kernel_size, kernel_size)).into_iter().enumerate() {
+        // Flatten the current window (patch) and assign it to the appropriate column
+        column_vectors.column_mut(i).assign(&window.iter().cloned().collect::<Array1<f32>>());
+        if debug {
+            println!("Column vector for patch {}:\n{}", i, column_vectors.column(i));
+        }
+    }
+
+    // Flatten the kernel into a row vector
+    let flattened_kernel: Array2<f32> = Array2::from_shape_vec(
+        (1, kernel_flat_size),
+        kernel.iter().cloned().collect::<Vec<f32>>(),
+    ).unwrap();
+
+    if debug {
+        println!("Flattened kernel:\n{}", flattened_kernel);
+    }
+
+    if debug {
+        println!("Flattened kernel:\n{}", flattened_kernel);
+    }
+    flattened_kernel.dot(&column_vectors)
 }

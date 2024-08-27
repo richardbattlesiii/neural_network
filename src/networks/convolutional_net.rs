@@ -1,4 +1,4 @@
-use crate::layers;
+use crate::{flow::flow_ai::PUZZLE_WIDTH, layers::{self, softmax_layer}};
 use layers::convolutional_layer::ConvolutionalLayer;
 use layers::dense_layer::DenseLayer;
 use ndarray::{s, Array2, Array4, ArrayView2, ArrayView4};
@@ -135,6 +135,8 @@ impl ConvolutionalNet {
             }
             dense_outputs.push(current_input.clone());
         }
+        let final_output = &dense_outputs[self.num_dense_layers];
+        dense_outputs.push(softmax_layer::pass(final_output, PUZZLE_WIDTH));
         (convolutional_outputs, dense_outputs)
     }
     
@@ -157,7 +159,7 @@ impl ConvolutionalNet {
     
     pub fn predict(&self, input: &ArrayView4<f32>) -> Array2<f32> {
         let (_, dense_outputs) = self.forward_pass(input);
-        dense_outputs[self.num_dense_layers].to_shape((input.dim().0, self.dense_layers[self.num_dense_layers-1].get_parameters().0.ncols())).unwrap().to_owned()
+        dense_outputs[self.num_dense_layers + 1].to_shape((input.dim().0, self.dense_layers[self.num_dense_layers-1].get_parameters().0.ncols())).unwrap().to_owned()
     }
 
     pub fn back_prop(&mut self, inputs: &ArrayView4<f32>, labels: &ArrayView2<f32>) -> f32 {
@@ -165,7 +167,7 @@ impl ConvolutionalNet {
         let (convolutional_outputs, dense_outputs) = self.forward_pass(inputs);
         
         // Calculate initial error with output layer derivative
-        let mut current_error = dense_outputs[self.num_dense_layers].clone();
+        let mut current_error = dense_outputs[self.num_dense_layers+1].clone();
         //Calculate the loss by stealing the current error before it's done
         let output = Self::calculate_bce_loss(&current_error.view(), labels);
         //Derivative of loss function.

@@ -12,7 +12,7 @@ use std::fs::File;
 use std::io::{IoSlice, Write};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use helpers::activation_functions;
+use helpers::{activation_functions, fft};
 use layers::convolutional_layer;
 use networks::convolutional_net::ConvolutionalNet;
 use rand::{random, Rng};
@@ -113,7 +113,7 @@ const LAMBDA: f32 = 0.2;
     Number of threads to use in genetic algorithm. Note that my cpu has 32 threads but that is... atypical.
     So if you run this make sure you change this unless you also have a lot of cores.
 */
-static NUM_THREADS:u8 = 12;
+static NUM_THREADS:u8 = 18;
 
 ///Number of layers, including input and output layers.
 ///Number of dense layers will be this minus one.
@@ -146,21 +146,25 @@ const PRINTERVAL:u32 = 1;
 
 ///Max number of epochs.
 ///Note that in the genetic algorithm, this is per generation.
-static MAX_EPOCHS:u32 = 100000000;
+static MAX_EPOCHS:u32 = 10000000;
 
 ///How many puzzles to train on.
 ///Will panic if the total number of puzzles is above the number of lines in the input text file (see flow_ai).
-static NUM_TRAINING_PUZZLES:usize = 256;
+static NUM_TRAINING_PUZZLES:usize = 128;
 
 ///How many puzzles to test on.
 ///Will panic if the total number of puzzles is above the number of lines in the input text file (see flow_ai).
-static NUM_TESTING_PUZZLES:usize = 512;
+static NUM_TESTING_PUZZLES:usize = 128;
 
 ///How often to regenerate the puzzles.
-static REGENERATE_PUZZLES_INTERVAL:u32 = 20;
+static REGENERATE_PUZZLES_INTERVAL:u32 = 5;
 
 ///How many times the genetic algorithm should print a progress update each generation.
 const NUM_PRINTS_PER_GENERATION:u32 = 10;
+
+//best testing loss: 1.321
+//best confidence in right answer: over 80%
+//both with 2000 epochs
 
 fn main() {
     //let start = Instant::now();
@@ -169,6 +173,10 @@ fn main() {
     //make_convolutional_net();
     //xor();
     make_convolutional_net();
+    // let image = Array2::from_shape_vec((3,3), vec![1.,2.,3.,4.,5.,6.,7.,8.,9.]).unwrap();
+    // let kernel = Array2::from_shape_vec((3,3), vec![0.,0.,0.,0.,1.,1.,0.,0.,0.,]).unwrap();
+    // println!("Image:\n{}\n\nKernel:\n{}\n", image, kernel,);
+    // println!("Result:\n{}", convolutional_layer::im_2_col_convolve(&image.view(), &kernel.view()));
     //genetic_algorithm();
 
     // let best_ever_loss = f32::MAX;
@@ -321,29 +329,33 @@ fn make_convolutional_net() {
     let mut cn = ConvolutionalNet::new(
         PUZZLE_WIDTH, //Image size
         COLORS, //Input channels
-        &[32, 64], //Num filters
-        &[3, 3], //Filter sizes
-        &[64*PUZZLE_WIDTH*PUZZLE_WIDTH, COLORS*PUZZLE_WIDTH*PUZZLE_WIDTH, COLORS*PUZZLE_WIDTH*PUZZLE_WIDTH], //Dense layer sizes
-        &[0, 0, 0, 1]); //Activation functions
+        &[32, 64, 128], //Num filters
+        &[3, 5, 5], //Filter sizes
+        &[128*PUZZLE_WIDTH*PUZZLE_WIDTH, COLORS*PUZZLE_WIDTH*PUZZLE_WIDTH], //Dense layer sizes
+        &[0, 0, 0, 0, 0, 0, 0, 0]); //Activation functions
     cn.initialize();
     cn.set_learning_rate(0.1);
     let start = Instant::now();
     for epoch in 0..MAX_EPOCHS {
         if epoch % REGENERATE_PUZZLES_INTERVAL == 0 && epoch != 0 {
             (training_puzzles, training_solutions) = flow_ai::generate_puzzles_3d(NUM_TRAINING_PUZZLES, NUM_THREADS);
-            //let (testing_puzzles, testing_solutions) = flow_ai::generate_puzzles_3d(NUM_TESTING_PUZZLES, NUM_THREADS);
+            //(testing_puzzles, testing_solutions) = flow_ai::generate_puzzles_3d(NUM_TESTING_PUZZLES, NUM_THREADS);
         }
         let training_loss = cn.back_prop(&training_puzzles.view(), &training_solutions.view());
         if epoch % PRINTERVAL == 0 {
             let prediction = cn.predict(&testing_puzzles.view());
             let testing_loss = ConvolutionalNet::calculate_bce_loss(&prediction.view(), &testing_solutions.view());
             println!("Epoch: {},\tTraining Loss: {:6.4}, \tTesting Loss: {:6.4}", epoch, training_loss, testing_loss);
+            if f32::is_nan(testing_loss) {
+                println!("NAN MOMENT");
+                break;
+            }
             if epoch % (PRINTERVAL*10) == 0 && epoch != 0 {
                 let puzzle_num = (rand::random::<f32>() * prediction.nrows() as f32) as usize;
                 let predicted_grid = predict_from_one_hot(&prediction.slice(s![puzzle_num, ..]));
                 let solution_grid = predict_from_one_hot(&testing_solutions.slice(s![puzzle_num, ..]));
                 println!("Solution:\n{}\n\nPrediction:\n{}\n", solution_grid, predicted_grid);
-                print_confidence_in_right_answer(&prediction.slice(s![puzzle_num..puzzle_num+1, ..]), &testing_solutions.slice(s![puzzle_num..puzzle_num+1, ..]));
+                print_confidence_in_right_answer(&prediction.view(), &testing_solutions.view());
             }
         }
     }
@@ -494,12 +506,13 @@ fn genetic_algorithm() {
     // // println!("Time elapsed: {} ms", duration.as_millis());
 }
 
+///Get the average BCE across all the testing puzzles.
 fn test_dense_net(dn: &DenseNet, testing_puzzles: &Array2<f32>, testing_solutions: &Array2<f32>) -> f32 {
     dn.calculate_bce_loss(&dn.predict(&testing_puzzles.view()).view(), &testing_solutions.view())
 }
 
+///Get a random test puzzle and make a prediction on it.
 fn test_net_specific(dn: &DenseNet, puzzles: &Array2<f32>, solutions: &Array2<f32>) {
-    //Get a random test puzzle and make a prediction on it.
     let randy:f32 = random();
     let puzzle_num = (randy*(puzzles.nrows() as f32)) as usize;
     let puzzle = puzzles.slice(s![puzzle_num..puzzle_num+1, 0..IO_SIZE]).to_owned();
@@ -537,12 +550,13 @@ fn predict_from_one_hot(prediction: &ArrayView1<f32>) -> Array2<f32> {
 }
 
 /**
-    I don't really know how to describe what this is, but I want a sequence that
+    I don't really know how to describe what this is, but I wanted a sequence that
     successively "scans" between 0 and 1 with increasing resolution, meaning
     it starts at 1/2, then 1/4, then 3/4, then 1/8, 3/8, 5/8, 7/8, 1/16, etc.
+
+    Used for automatic hyperparameter optimization.
 */
 fn interpolate_by_halves(iterations: u32) -> f32 {
-    //Initialize the count and the current denominator (power of 2)
     let mut count = 0;
     let mut n = 1.0;
 
@@ -558,16 +572,16 @@ fn interpolate_by_halves(iterations: u32) -> f32 {
         n *= 2.0; //Move to the next power of 2
     }
 
-    //In case input is invalid (shouldn't happen with proper input)
+    //In case input is invalid (shouldn't happen but whatever)
     0.0
 }
 
 fn print_confidence_in_right_answer(prediction: &ArrayView2<f32>, solution: &ArrayView2<f32>) {
     let debug = false;
+    //Stores the confidence in the right answers
+    let mut confidence = 0.;
     //Loop over the puzzles
     for row in 0..prediction.nrows() {
-        //Store the total confidence
-        let mut confidence = 0.0;
         //Loop over the tiles in the puzzle, checking if each one is correct
         for col in 0..prediction.ncols() {
             if solution[[row, col]] == 1f32 {
@@ -580,10 +594,10 @@ fn print_confidence_in_right_answer(prediction: &ArrayView2<f32>, solution: &Arr
         if debug {
             println!("Total confidence was: {}", confidence);
         }
-        //Take the average
-        confidence /= (PUZZLE_WIDTH*PUZZLE_WIDTH) as f32;
-        println!("Average confidence in correct answer: {}\n", confidence);
     }
+    //Take the average
+    confidence /= (prediction.nrows()*PUZZLE_WIDTH*PUZZLE_WIDTH) as f32;
+    println!("Average correct confidence: {:6.5}, That's {:4.2} times better than average!", confidence, confidence*COLORS as f32);
 }
 
 // fn dropout(input: &mut Array2<f32>) {
