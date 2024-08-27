@@ -7,6 +7,7 @@ pub mod helpers;
 pub mod layers;
 pub mod flow;
 pub mod networks;
+pub mod everhood;
 
 use std::fs::File;
 use std::io::{IoSlice, Write};
@@ -15,6 +16,7 @@ use std::thread;
 use helpers::{activation_functions, fft};
 use layers::convolutional_layer;
 use networks::convolutional_net::ConvolutionalNet;
+use networks::gamer_net;
 use rand::{random, Rng};
 use std::f32::consts::TAU;
 use std::time::{Instant, Duration};
@@ -111,9 +113,9 @@ const STATIC_LEARNING_RATE_AMOUNT: f32 = 0.1;
 const LAMBDA: f32 = 0.2;
 /**
     Number of threads to use in genetic algorithm. Note that my cpu has 32 threads but that is... atypical.
-    So if you run this make sure you change this unless you also have a lot of cores.
+    So if you run this make sure you set it to something reasonable.
 */
-static NUM_THREADS:u8 = 18;
+static NUM_THREADS:u8 = 12;
 
 ///Number of layers, including input and output layers.
 ///Number of dense layers will be this minus one.
@@ -150,14 +152,14 @@ static MAX_EPOCHS:u32 = 10000000;
 
 ///How many puzzles to train on.
 ///Will panic if the total number of puzzles is above the number of lines in the input text file (see flow_ai).
-static NUM_TRAINING_PUZZLES:usize = 128;
+static NUM_TRAINING_PUZZLES:usize = 32768;
 
 ///How many puzzles to test on.
 ///Will panic if the total number of puzzles is above the number of lines in the input text file (see flow_ai).
 static NUM_TESTING_PUZZLES:usize = 128;
 
 ///How often to regenerate the puzzles.
-static REGENERATE_PUZZLES_INTERVAL:u32 = 5;
+static REGENERATE_PUZZLES_INTERVAL:u32 = 1000;
 
 ///How many times the genetic algorithm should print a progress update each generation.
 const NUM_PRINTS_PER_GENERATION:u32 = 10;
@@ -170,42 +172,15 @@ fn main() {
     //let start = Instant::now();
     //generate_puzzles_3d(NUM_TRAINING_PUZZLES, NUM_THREADS);
     //println!("Finished in {:8.6}s.", start.elapsed().as_secs_f32());
-    //make_convolutional_net();
+    //make_regular_dense_net(ROSE_DECAY_LEARNING_RATE, (0.0, 0.0, 0.0));
     //xor();
-    make_convolutional_net();
+    //make_convolutional_net();
+    //genetic_algorithm();
+    gamer_net::make_gamer_net();
     // let image = Array2::from_shape_vec((3,3), vec![1.,2.,3.,4.,5.,6.,7.,8.,9.]).unwrap();
     // let kernel = Array2::from_shape_vec((3,3), vec![0.,0.,0.,0.,1.,1.,0.,0.,0.,]).unwrap();
     // println!("Image:\n{}\n\nKernel:\n{}\n", image, kernel,);
     // println!("Result:\n{}", convolutional_layer::im_2_col_convolve(&image.view(), &kernel.view()));
-    //genetic_algorithm();
-
-    // let best_ever_loss = f32::MAX;
-    // let best_learning_rate = -1.0;
-    // // let mut handles = vec![];
-    // for i in 1..NUM_TRIES {
-    //     // handles.push(thread::spawn(move || {
-    //         let current_learning_rate = interpolate_by_halves(i);
-    //         println!("Trying learning rate of {}", current_learning_rate);
-    //         let mut best_current_loss = f32::MAX;
-    //         for j in 0..10 {
-    //             let current_loss = make_regular_dense_net(STATIC_LEARNING_RATE, (current_learning_rate, 0.0, 0.0));
-    //             if current_loss < best_current_loss {
-    //                 best_current_loss = current_loss;
-    //             }
-    //         }
-    //         println!("Loss was {}", best_current_loss);
-    //         if best_current_loss < best_ever_loss {
-    //             println!("New best!");
-
-    //         }
-    //     //     } ));
-        
-    //     // if i >= NUM_THREADS {
-    //     //     for handle in handles.drain(..NUM_THREADS as usize) {
-    //     //         handle.join().unwrap();
-    //     //     }
-    //     // }
-    // }
 }
 
 ///Make a DenseNet and have it solve XOR, as a minimum working example to compare with working

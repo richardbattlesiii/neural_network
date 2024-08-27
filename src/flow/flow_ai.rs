@@ -8,7 +8,7 @@ use rand::{random, Rng};
 use rand::seq::SliceRandom;
 
 
-pub const PUZZLE_WIDTH: usize = 6;
+pub const PUZZLE_WIDTH: usize = 2;
 pub const COLORS: usize = PUZZLE_WIDTH*PUZZLE_WIDTH/2+2;
 pub const KEY: &str = "-0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ`~!@#$%^&*()=+;':\"[]\\{}|";
 pub fn convert() -> io::Result<(Array2<f32>, Array2<f32>)> {
