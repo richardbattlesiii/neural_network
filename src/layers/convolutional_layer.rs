@@ -3,6 +3,8 @@ use rand::distributions::Uniform;
 use rand::prelude::Distribution;
 use ndarray::{s, Array1, Array2, Array4, ArrayView2, ArrayView4, Axis};
 
+use super::layer::Layer;
+
 pub const PADDING_VALID:u8 = 0;
 pub const PADDING_SAME:u8 = 1;
 pub const PADDING_FULL:u8 = 2;
@@ -49,7 +51,16 @@ impl ConvolutionalLayer {
         }
     }
 
-    pub fn initialize(&mut self) {
+    pub fn get_weights_magnitude(&self) -> f32 {
+        (&self.filters * &self.filters).sum().sqrt()
+    }
+}
+impl<'a> Layer<'a> for ConvolutionalLayer {
+    type Output = Array4<f32>;
+    type Input = ArrayView4<'a, f32>;
+    type MyOutputAsAnInput = ArrayView4<'a, f32>;
+    type MyInputAsAnOutput = Array4<f32>;
+    fn initialize(&mut self) {
         let filter_units = self.filter_size*self.filter_size;
         let input_units = self.input_channels*filter_units;
         let output_units = self.num_filters*filter_units;
@@ -59,8 +70,7 @@ impl ConvolutionalLayer {
         self.filters.map_inplace(|x| *x = filter_distribution.sample(rng));
     }
 
-    ///Note: This is a reference to Longmont Potion Castle, not Rick & Morty.
-    pub fn im_ready_to_pass_regular_rick(&self, input: &ArrayView4<f32>) -> Array4<f32> {
+    fn pass(&self, input: &ArrayView4<f32>) -> Array4<f32> {
         let (batch_size, channels, image_size, _) = input.dim();
         let mut output = Array4::zeros((batch_size, self.num_filters, image_size, image_size));
 
@@ -84,8 +94,8 @@ impl ConvolutionalLayer {
         output
     }
 
-    pub fn backpropagate(&mut self, input: &ArrayView4<f32>,
-            my_output: &ArrayView4<f32>, error: &ArrayView4<f32>) -> Array4<f32> {
+    fn backpropagate(&mut self, input: &'a ArrayView4<f32>,
+            my_output: &'a ArrayView4<f32>, error: &'a ArrayView4<f32>) -> Array4<f32> {
         let (num_samples, input_channels, image_size, _) = input.dim();
         //dLoss/dFilters
         let mut filter_gradients: Array4<f32> = Array4::zeros((self.num_filters, input_channels, self.filter_size, self.filter_size));
@@ -131,12 +141,8 @@ impl ConvolutionalLayer {
         output
     }
 
-    pub fn set_learning_rate(&mut self, rate: f32) {
+    fn set_learning_rate(&mut self, rate: f32) {
         self.learning_rate = rate;
-    }
-
-    pub fn get_weights_magnitude(&self) -> f32 {
-        (&self.filters * &self.filters).sum().sqrt()
     }
 }
 

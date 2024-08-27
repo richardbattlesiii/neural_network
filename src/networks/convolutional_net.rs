@@ -1,6 +1,7 @@
 use crate::{flow::flow_ai::PUZZLE_WIDTH, layers::{self, softmax_layer}};
 use layers::convolutional_layer::ConvolutionalLayer;
 use layers::dense_layer::DenseLayer;
+use layers::layer::Layer;
 use ndarray::{s, Array2, Array4, ArrayView2, ArrayView4};
 
 #[derive(Default)]
@@ -76,10 +77,6 @@ impl ConvolutionalNet {
         }
     }
 
-    pub fn get_learning_rate(&self) -> f32 {
-        self.convolutional_layers[0].learning_rate
-    }
-
     pub fn initialize(&mut self) {
         for layer in 0..self.num_convolutional_layers {
             self.convolutional_layers[layer].initialize();
@@ -88,22 +85,6 @@ impl ConvolutionalNet {
             self.dense_layers[layer].initialize();
         }
     }
-
-    // pub fn set_parameters_manually(&mut self, weights: &Vec<Tensor>, biases: &Vec<Tensor>) {
-    //     for layer in 0..self.num_layers {
-    //         self.layers[layer].set_weights(&weights[layer]);
-    //         self.layers[layer].set_biases(&biases[layer]);
-    //     }
-    // }
-
-    // pub fn get_parameters(&self) -> Vec<(&Tensor, &Tensor)> {
-    //     let mut output = vec![];
-    //     for layer in 0..self.num_layers {
-    //         output.push(self.layers[layer].get_parameters());
-    //     }
-
-    //     output
-    // }
 
     //Returns the output from each layer.
     pub fn forward_pass(&self, input: &ArrayView4<f32>) -> (Vec<Array4<f32>>, Vec<Array2<f32>>) {
@@ -117,7 +98,7 @@ impl ConvolutionalNet {
             if debug {
                 println!("Passing conv layer {} with input {:?}.", layer_num, current_input.shape());
             }
-            current_output = self.convolutional_layers[layer_num].im_ready_to_pass_regular_rick(current_input);
+            current_output = self.convolutional_layers[layer_num].pass(current_input);
             if debug {
                 println!("Output was: {:?}", current_output.shape());
             }

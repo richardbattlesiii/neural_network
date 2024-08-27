@@ -4,6 +4,7 @@ use std::fmt;
 use ndarray::{Array1, ArrayView1, Array2, ArrayView2};
 use ndarray_rand::RandomExt;
 use ndarray_rand::rand_distr::Uniform;
+use crate::layers::layer::Layer;
 
 pub struct DenseLayer {
     input_size:usize,
@@ -17,28 +18,19 @@ pub struct DenseLayer {
     biases:Array1<f32>
 }
 
-impl DenseLayer {
-    pub fn new(input_size: usize, output_size: usize,
-            learning_rate: f32, lambda: f32, activation_function: u8)
-            -> DenseLayer {
-        DenseLayer {
-            input_size,
-            output_size,
-            learning_rate,
-            activation_function,
-            lambda,
-            weights: Array2::zeros((input_size, output_size)),
-            biases: Array1::zeros(output_size)
-        }
-    }
+impl<'a> Layer<'a> for DenseLayer {
+    type Input = ArrayView2<'a, f32>;
+    type Output = Array2<f32>;
+    type MyOutputAsAnInput = ArrayView2<'a, f32>;
+    type MyInputAsAnOutput = Array2<f32>;
     
-    pub fn initialize(&mut self){
+    fn initialize(&mut self){
         let xavier = f32::sqrt(6.0/((self.input_size + self.output_size) as f32 ));
         self.weights = Array2::random((self.input_size, self.output_size), Uniform::new(-xavier, xavier));
         self.biases = Array1::random(self.output_size, Uniform::new(-0.01, 0.01));
     }
 
-    pub fn pass(&self, input: &ArrayView2<f32>) -> Array2<f32> {
+    fn pass(&self, input: &ArrayView2<f32>) -> Array2<f32> {
         // println!("Input:\n{}", input);
         let mut product = input.dot(&self.weights);
         let biases_reshaped = self.biases.clone().insert_axis(ndarray::Axis(0));
@@ -48,7 +40,7 @@ impl DenseLayer {
         product
     }
 
-    pub fn backpropagate(&mut self, input: &ArrayView2<f32>, my_output: &ArrayView2<f32>, error: &ArrayView2<f32>) -> Array2<f32> {
+    fn backpropagate(&mut self, input: &ArrayView2<f32>, my_output: &ArrayView2<f32>, error: &ArrayView2<f32>) -> Array2<f32> {
        let mut derivative = my_output.to_owned();
         activation_derivative_2d(self.activation_function, &mut derivative);
 
@@ -86,8 +78,24 @@ impl DenseLayer {
         output
     }
 
-    pub fn set_learning_rate(&mut self, rate: f32) {
+    fn set_learning_rate(&mut self, rate: f32) {
         self.learning_rate = rate;
+    }
+}
+
+impl DenseLayer {
+    pub fn new(input_size: usize, output_size: usize,
+            learning_rate: f32, lambda: f32, activation_function: u8)
+            -> DenseLayer {
+        DenseLayer {
+            input_size,
+            output_size,
+            learning_rate,
+            activation_function,
+            lambda,
+            weights: Array2::zeros((input_size, output_size)),
+            biases: Array1::zeros(output_size)
+        }
     }
 
     pub fn get_learning_rate(&self) -> f32 {

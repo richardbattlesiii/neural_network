@@ -1,5 +1,5 @@
 use crate::*;
-use layers::{dense_layer::DenseLayer, softmax_layer};
+use layers::{dense_layer::DenseLayer, softmax_layer, layer::Layer};
 use ndarray::{Array1, ArrayView1, Array2, ArrayView2};
 use ndarray_rand::RandomExt;
 use rand::distributions::Uniform;
