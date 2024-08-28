@@ -1,7 +1,7 @@
 use crate::helpers::activation_functions::*;
 use rand::Rng;
 use std::fmt;
-use ndarray::{Array1, ArrayView1, Array2, ArrayView2};
+use ndarray::{Array1, ArrayView1, Array2, ArrayView2, ArrayD, ArrayViewD};
 use ndarray_rand::RandomExt;
 use ndarray_rand::rand_distr::Uniform;
 use crate::layers::layer::Layer;
@@ -18,33 +18,37 @@ pub struct DenseLayer {
     biases:Array1<f32>
 }
 
-impl<'a> Layer<'a> for DenseLayer {
-    type Input = ArrayView2<'a, f32>;
-    type Output = Array2<f32>;
-    type MyOutputAsAnInput = ArrayView2<'a, f32>;
-    type MyInputAsAnOutput = Array2<f32>;
-    
+impl Layer for DenseLayer {
     fn initialize(&mut self){
         let xavier = f32::sqrt(6.0/((self.input_size + self.output_size) as f32 ));
         self.weights = Array2::random((self.input_size, self.output_size), Uniform::new(-xavier, xavier));
         self.biases = Array1::random(self.output_size, Uniform::new(-0.01, 0.01));
     }
 
-    fn pass(&self, input: &ArrayView2<f32>) -> Array2<f32> {
+    fn pass(&self, input_dynamic: &ArrayViewD<f32>) -> ArrayD<f32> {
         // println!("Input:\n{}", input);
-        let mut product = input.dot(&self.weights);
+        let input = input_dynamic.to_shape((input_dynamic.dim()[0], self.input_size)).unwrap();
+        let mut product = input.dot(&self.weights).into_dyn();
         let biases_reshaped = self.biases.clone().insert_axis(ndarray::Axis(0));
         product += &biases_reshaped;
-        activate_2d(self.activation_function, &mut product);
+        activate(self.activation_function, &mut product);
         // println!("Output:\n{}", product);
         product
     }
 
-    fn backpropagate(&mut self, input: &ArrayView2<f32>, my_output: &ArrayView2<f32>, error: &ArrayView2<f32>) -> Array2<f32> {
-       let mut derivative = my_output.to_owned();
-        activation_derivative_2d(self.activation_function, &mut derivative);
+    fn backpropagate(&mut self, input_dynamic: &ArrayViewD<f32>,
+                my_output_dynamic: &ArrayViewD<f32>,
+                error_dynamic: &ArrayViewD<f32>)
+                -> ArrayD<f32> {
+        let batch_size = input_dynamic.dim()[0];
+        let input = input_dynamic.to_shape((batch_size, self.input_size)).unwrap();
+        let my_output = my_output_dynamic.to_shape((batch_size, self.output_size)).unwrap();
+        let error = error_dynamic.to_shape((batch_size, self.output_size)).unwrap();
 
-        let dl_da = *error;
+        let mut derivative = my_output_dynamic.to_owned();
+        activation_derivative(self.activation_function, &mut derivative);
+        let derivative = derivative.to_shape((batch_size, self.output_size)).unwrap();
+        let dl_da = error;
         let grad = &dl_da * &derivative;
 
         let output = grad.dot(&self.weights.t());
@@ -75,11 +79,19 @@ impl<'a> Layer<'a> for DenseLayer {
                 }
             }
         }
-        output
+        output.into_dyn()
     }
 
     fn set_learning_rate(&mut self, rate: f32) {
         self.learning_rate = rate;
+    }
+    
+    fn get_input_shape(&self) -> Vec<usize> {
+        vec![self.input_size]
+    }
+    
+    fn get_output_shape(&self) -> Vec<usize> {
+        vec![self.output_size]
     }
 }
 
