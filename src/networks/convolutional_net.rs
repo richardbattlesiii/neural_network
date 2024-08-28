@@ -1,4 +1,4 @@
-use crate::{flow::flow_ai::PUZZLE_WIDTH, layers::{self, softmax_layer}};
+use crate::{flow::flow_ai::PUZZLE_WIDTH, layers::{self, softmax_layer::SoftmaxLayer}};
 use layers::convolutional_layer::ConvolutionalLayer;
 use layers::dense_layer::DenseLayer;
 use layers::layer::Layer;
@@ -119,7 +119,7 @@ impl ConvolutionalNet {
             dense_outputs.push(current_input.clone());
         }
         let final_output = &dense_outputs[self.num_dense_layers];
-        dense_outputs.push(softmax_layer::pass(final_output, PUZZLE_WIDTH));
+        dense_outputs.push(SoftmaxLayer::new().pass(&final_output.view()));
         (convolutional_outputs, dense_outputs)
     }
     

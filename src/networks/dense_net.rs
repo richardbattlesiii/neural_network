@@ -1,5 +1,5 @@
 use crate::*;
-use layers::{dense_layer::DenseLayer, softmax_layer, layer::Layer};
+use layers::{dense_layer::DenseLayer, softmax_layer::SoftmaxLayer, layer::Layer};
 use ndarray::{Array1, ArrayView1, Array2, ArrayView2};
 use ndarray_rand::RandomExt;
 use rand::distributions::Uniform;
@@ -115,7 +115,7 @@ impl DenseNet {
             dropout(&mut passed);
             all_outputs.push(passed);
         }
-        let softmax_output = softmax_layer::pass(&all_outputs[self.num_layers], PUZZLE_WIDTH);
+        let softmax_output = SoftmaxLayer::new().pass(&all_outputs[self.num_layers].view());
         all_outputs.push(softmax_output);
         all_outputs
     }
