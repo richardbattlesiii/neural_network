@@ -12,9 +12,11 @@ use std::fs::File;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use layers::*;
+use layers::{*, dense_layer::DenseLayer};
+use networks::neural_net::NeuralNet;
 // use networks::convolutional_net::ConvolutionalNet;
 use rand::random;
+use softmax_layer::SoftmaxLayer;
 use std::f32::consts::TAU;
 use std::time::Instant;
 use flow::flow_ai::{self, COLORS, PUZZLE_WIDTH};
@@ -166,6 +168,7 @@ const NUM_PRINTS_PER_GENERATION:u32 = 10;
 //both with 2000 epochs
 
 fn main() {
+    make_generic_net();
     //let start = Instant::now();
     //generate_puzzles_3d(NUM_TRAINING_PUZZLES, NUM_THREADS);
     //println!("Finished in {:8.6}s.", start.elapsed().as_secs_f32());
@@ -205,6 +208,44 @@ fn main() {
     //     //     }
     //     // }
     // }
+}
+
+///It works! Well, it doesn't actually seem to be learning, but I think that's just because of how I have it set up.
+///But I don't get any errors! Yippee!
+fn make_generic_net() {
+    let inputs:Array2<f32> = Array2::from_shape_vec((4,2), vec![0.0,0.0, 0.0,1.0, 1.0,0.0, 1.0,1.0]).unwrap();
+    let labels:Array2<f32> = Array2::from_shape_vec((4,1), vec![0.0, 1.0, 1.0, 0.0]).unwrap();
+
+    let mut net = NeuralNet::new();
+    let sizes = &[2, 18, 1];
+    for i in 0..sizes.len()-2 {
+        net.add_layer(Box::from(DenseLayer::new(
+            sizes[i],
+            sizes[i+1],
+            1.,
+            LAMBDA,
+            0
+        )));
+    }
+    net.add_layer(Box::from(DenseLayer::new(
+        sizes[sizes.len()-2],
+        sizes[sizes.len()-1],
+        1.,
+        LAMBDA,
+        1
+    )));
+    net.initialize();
+    let outputs = net.forward_pass(&inputs.view().into_dyn());
+    let prediction = &outputs[outputs.len()-1];
+    println!("{:?}", prediction);
+
+    for epoch in 0..10000 {
+        net.backpropagate(&inputs.view().into_dyn(), &labels.view().into_dyn());
+    }
+
+    let outputs = net.forward_pass(&inputs.view().into_dyn());
+    let prediction = &outputs[outputs.len()-1];
+    println!("Here we go...\n{:?}", prediction);
 }
 
 ///Make a DenseNet and have it solve XOR, as a minimum working example to compare with working

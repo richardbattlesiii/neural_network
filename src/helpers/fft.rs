@@ -16,7 +16,7 @@ fn fft_1d(input: &ArrayView1<Complex32>) -> Vec<Complex32> {
 
     let mut output: Vec<Complex32> = vec![Complex32::default(); len];
     
-    (0..len/2).into_iter().for_each(|k| {
+    (0..len/2).for_each(|k| {
         let wk = c32(0., -TAU * k as f32 / len as f32).exp();
         let t = wk * odd[k];
         output[k] = even[k] + t;
@@ -35,7 +35,6 @@ pub fn fft(input: &ArrayView2<f32>) -> Array2<Complex32> {
         c32(*real_num, 0.)
     });
     let rows_fftd: Vec<Complex32> = (0..rows)
-            .into_iter()
             .flat_map(|row| {
                 fft_1d(&complex_input.slice(s![row, ..]))
     })
@@ -44,7 +43,6 @@ pub fn fft(input: &ArrayView2<f32>) -> Array2<Complex32> {
     let temp = Array2::from_shape_vec((rows, cols), rows_fftd).unwrap();
     
     let cols_fftd: Vec<Complex32> = (0..cols)
-            .into_iter()
             .flat_map(|col| {
                 fft_1d(&temp.slice(s![.., col]))
     })
@@ -67,7 +65,7 @@ fn ifft_1d(input: &ArrayView1<Complex32>) -> Vec<Complex32> {
 
     let mut output: Vec<Complex32> = vec![Complex32::default(); len];
     
-    (0..len/2).into_iter().for_each(|k| {
+    (0..len/2).for_each(|k| {
         let wk = c32(0., TAU * k as f32 / len as f32).exp();
         let t = wk * odd[k];
         output[k] = even[k] + t;
@@ -85,7 +83,6 @@ pub fn ifft(input: &Array2<Complex32>) -> Array2<f32> {
     let cols = input.ncols();
     
     let cols_ifftd: Vec<Complex32> = (0..rows)
-            .into_iter()
             .flat_map(|row| {
                 ifft_1d(&input.slice(s![row, ..]))
     })
@@ -96,7 +93,6 @@ pub fn ifft(input: &Array2<Complex32>) -> Array2<f32> {
     //println!("Temp:\n{}", temp);
     //println!("Temp slice:\n{}", temp.slice(s![.., 0]));
     let rows_ifftd: Vec<Complex32> = (0..cols)
-            .into_iter()
             .flat_map(|col| {
                 ifft_1d(&temp.slice(s![.., col]))
     })
@@ -107,13 +103,13 @@ pub fn ifft(input: &Array2<Complex32>) -> Array2<f32> {
     let real_parts: Vec<f32> = shift(&rows_ifftd, rows, cols)
             .into_iter()
             .map(|complex_num| {
-                return complex_num.re;
+                complex_num.re
     }).collect();
 
     Array2::from_shape_vec((rows, cols), real_parts).unwrap()
 }
 
-fn shift(arr: &Vec<Complex32>, rows: usize, cols: usize) -> Array2<Complex32> {
+fn shift(arr: &[Complex32], rows: usize, cols: usize) -> Array2<Complex32> {
     let mut shifted = Array2::zeros((rows, cols));
     let row_shift = rows - 1;
     let col_shift = cols - 1;
@@ -155,6 +151,5 @@ pub fn convolve(image: &ArrayView2<f32>, kernel: &ArrayView2<f32>) -> Array2<f32
     //println!("FFT Image:\n{}\nFFT Kernel:\n{}", fft_image, fft_kernel);
     let fft_result = &fft_image * &fft_kernel;
     //println!("FFT Result:\n{}", fft_result);
-    let result = ifft(&fft_result);
-    result
+    ifft(&fft_result)
 }

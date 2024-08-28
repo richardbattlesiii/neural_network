@@ -27,6 +27,7 @@ impl Layer for DenseLayer {
 
     fn pass(&self, input_dynamic: &ArrayViewD<f32>) -> ArrayD<f32> {
         // println!("Input:\n{}", input);
+        //println!("Converting shape {:?} to ({} by {:?})", input_dynamic.shape(), input_dynamic.dim()[0], self.input_size);
         let input = input_dynamic.to_shape((input_dynamic.dim()[0], self.input_size)).unwrap();
         let mut product = input.dot(&self.weights).into_dyn();
         let biases_reshaped = self.biases.clone().insert_axis(ndarray::Axis(0));
