@@ -1,73 +1,43 @@
-use ndarray::prelude::{ArrayD, ArrayViewD};
-use crate::layers::layer::Layer;
+use ndarray::Array2;
 
-///Currently only supports 2d (batch size x prediction) inputs
-pub struct SoftmaxLayer {
-    size: usize,
-    channels: usize
-}
-
-impl SoftmaxLayer {
-    pub fn new(size: usize, channels: usize) -> SoftmaxLayer {
-        SoftmaxLayer{
-            size,
-            channels,
-        }
-    }
-}
-impl Layer for SoftmaxLayer {
+pub fn pass(input: &Array2<f32>, puzzle_width: usize) -> Array2<f32> {
+    let num_tiles = puzzle_width * puzzle_width;
+    let num_colors = input.ncols() / num_tiles;
     
-    ///Does nothing.
-    fn initialize(&mut self) {}
-    ///Does nothing.
-    fn set_learning_rate(&mut self, rate: f32) {}
+    // Create an output array with the same shape as the input
+    let mut output = Array2::zeros(input.raw_dim());
 
-    fn pass(&self, input: &ArrayViewD<f32>) -> ArrayD<f32> {
-        let batch_size = input.dim()[0];
-        let num_tiles = input.len()/batch_size/self.channels;
-        
-        let mut output = ArrayD::zeros(input.raw_dim());
+    // Iterate over each batch
+    for batch in 0..input.nrows() {
+        // Iterate over each tile
+        for tile in 0..num_tiles {
+            // Calculate the start and end indices for the current tile's color probabilities
+            let start = tile * num_colors;
+            let end = start + num_colors;
 
-        for batch in 0..batch_size {
-            for tile in 0..num_tiles {
-                let start = tile * self.channels;
-                let end = start + self.channels;
-
-                let mut max = f32::NEG_INFINITY;
-                for i in start..end {
-                    if input[[batch, i]] > max {
-                        max = input[[batch, i]];
-                    }
-                }
-
-                let mut sum = 0.0;
-                let mut exp_values = vec![0.0; self.channels];
-                for i in start..end {
-                    let exp_value = (input[[batch, i]] - max).exp();
-                    exp_values[i - start] = exp_value;
-                    sum += exp_value;
-                }
-
-                for i in start..end {
-                    output[[batch, i]] = exp_values[i - start] / sum;
+            // Find the max value for numerical stability
+            let mut max = f32::NEG_INFINITY;
+            for i in start..end {
+                if input[[batch, i]] > max {
+                    max = input[[batch, i]];
                 }
             }
+
+            // Compute the exponentials and sum
+            let mut sum = 0.0;
+            let mut exp_values = vec![0.0; num_colors];
+            for i in start..end {
+                let exp_value = (input[[batch, i]] - max).exp();
+                exp_values[i - start] = exp_value;
+                sum += exp_value;
+            }
+
+            // Normalize to get softmax values
+            for i in start..end {
+                output[[batch, i]] = exp_values[i - start] / sum;
+            }
         }
-
-        output
     }
 
-    fn backpropagate(&mut self, layer_input: &ArrayViewD<f32>,
-                layer_output: &ArrayViewD<f32>,
-                dl_da: &ArrayViewD<f32>) -> ArrayD<f32> {
-        dl_da.to_owned()
-    }
-    
-    fn get_input_shape(&self) -> Vec<usize> {
-        vec![self.size]
-    }
-    
-    fn get_output_shape(&self) -> Vec<usize> {
-        vec![self.size]
-    }
+    output
 }
