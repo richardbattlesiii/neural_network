@@ -19,8 +19,13 @@ impl NeuralNet {
     }
 
     pub fn add_layer(&mut self, layer: Box<dyn Layer>) {
-        if self.num_layers > 0 && (layer.get_input_shape() != self.layers[self.num_layers-1].get_output_shape()) {
-            panic!("Input of current layer and output of previous don't match.");
+        if self.num_layers > 0 {
+            let input_shape = layer.get_input_shape();
+            let previous_output_shape = self.layers[self.num_layers-1].get_output_shape();
+            if input_shape != previous_output_shape {
+                panic!("Input of current layer and output of previous don't match:\nLayer {} with shape {:?} and layer {} with shape {:?}.",
+                        self.num_layers-1, previous_output_shape, self.num_layers, input_shape);
+            }
         }
         self.layers.push(layer);
         self.num_layers += 1;

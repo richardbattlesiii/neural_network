@@ -210,14 +210,13 @@ fn main() {
     // }
 }
 
-///It works! Well, it doesn't actually seem to be learning, but I think that's just because of how I have it set up.
-///But I don't get any errors! Yippee!
+///It works! I don't get any errors! Yippee!
 fn make_generic_net() {
     let inputs:Array2<f32> = Array2::from_shape_vec((4,2), vec![0.0,0.0, 0.0,1.0, 1.0,0.0, 1.0,1.0]).unwrap();
-    let labels:Array2<f32> = Array2::from_shape_vec((4,1), vec![0.0, 1.0, 1.0, 0.0]).unwrap();
+    let labels:Array2<f32> = Array2::from_shape_vec((4,2), vec![0.0,1.0, 1.0,0.0, 1.0,0.0, 0.0,1.0]).unwrap();
 
     let mut net = NeuralNet::new();
-    let sizes = &[2, 18, 1];
+    let sizes = &[2, 18, 2];
     for i in 0..sizes.len()-2 {
         net.add_layer(Box::from(DenseLayer::new(
             sizes[i],
@@ -232,14 +231,15 @@ fn make_generic_net() {
         sizes[sizes.len()-1],
         1.,
         LAMBDA,
-        1
+        0
     )));
+    net.add_layer(Box::from(SoftmaxLayer::new(2, 2)));
     net.initialize();
     let outputs = net.forward_pass(&inputs.view().into_dyn());
     let prediction = &outputs[outputs.len()-1];
     println!("{:?}", prediction);
 
-    for epoch in 0..10000 {
+    for epoch in 0..1000 {
         net.backpropagate(&inputs.view().into_dyn(), &labels.view().into_dyn());
     }
 
