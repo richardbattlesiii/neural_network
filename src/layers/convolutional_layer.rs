@@ -179,7 +179,7 @@ impl Layer for ConvolutionalLayer {
 }
 
 ///Performs the given convolution method.
-pub fn convolve(input: &ArrayView2<f32>, kernel: &ArrayView2<f32>, convolution_method: u8) -> Array2<f32> {
+fn convolve(input: &ArrayView2<f32>, kernel: &ArrayView2<f32>, convolution_method: u8) -> Array2<f32> {
     match convolution_method {
         CONVOLUTION_BASIC => convolve_and_slide(input, kernel, PADDING_SAME),
         CONVOLUTION_FFT => fft::convolve(input, kernel),
