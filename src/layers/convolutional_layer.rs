@@ -14,17 +14,18 @@ pub const CONVOLUTION_FFT:u8 = 1;
 pub const CONVOLUTION_IM_2_COL:u8 = 2;
 
 pub struct ConvolutionalLayer {
-    pub image_size:usize,
-    pub input_channels:usize,
+    image_size:usize,
+    input_channels:usize,
 
-    pub learning_rate:f32,
-    pub activation_function:u8,
+    learning_rate:f32,
+    lambda:f32,
+    activation_function:u8,
     convolution_method:u8,
 
     filters:Array4<f32>,
     biases:Array1<f32>,
-    pub num_filters: usize,
-    pub filter_size: usize,
+    num_filters: usize,
+    filter_size: usize,
 }
 
 impl ConvolutionalLayer {
@@ -34,6 +35,7 @@ impl ConvolutionalLayer {
             num_filters: usize,
             filter_size: usize,
             learning_rate: f32,
+            lambda: f32,
             activation_function: u8,
             convolution_method: u8,
             ) -> ConvolutionalLayer {
@@ -42,6 +44,7 @@ impl ConvolutionalLayer {
             image_size,
             input_channels,
             learning_rate,
+            lambda,
             activation_function,
             filters: Array4::zeros((num_filters, input_channels, filter_size, filter_size)),
             biases: Array1::zeros(num_filters),
@@ -140,6 +143,22 @@ impl Layer for ConvolutionalLayer {
             }
         }
         
+        //L2 regularization
+        filter_gradients.scaled_add(self.lambda, &self.filters);
+        bias_gradients.scaled_add(self.lambda, &self.biases);
+
+        //Gradient clipping
+        let filter_gradients_norm = (&filter_gradients*&filter_gradients).sum().sqrt();
+        let bias_gradients_norm = (&bias_gradients*&bias_gradients).sum().sqrt();
+
+        let clipping_threshold = 2.;
+        if filter_gradients_norm > clipping_threshold {
+            filter_gradients *= clipping_threshold/filter_gradients_norm;
+        }
+        if bias_gradients_norm > clipping_threshold {
+            bias_gradients *= clipping_threshold/bias_gradients_norm;
+        }
+
         let coefficient = -self.learning_rate/num_samples as f32;
         self.filters.scaled_add(coefficient, &filter_gradients);
         self.biases.scaled_add(coefficient, &bias_gradients);
