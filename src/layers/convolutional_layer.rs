@@ -1,7 +1,7 @@
 use crate::helpers::{activation_functions::*, fft};
 use rand::distributions::Uniform;
 use rand::prelude::Distribution;
-use ndarray::{s, Array1, Array2, Array4, ArrayView2, ArrayView4, ArrayD, ArrayViewD, Axis};
+use ndarray::{s, Array1, Array2, Array4, ArrayView2, ArrayD, ArrayViewD, Axis};
 
 use super::layer::Layer;
 
@@ -18,6 +18,7 @@ pub struct ConvolutionalLayer {
     pub input_channels:usize,
 
     pub learning_rate:f32,
+    lambda:f32,
     pub activation_function:u8,
     convolution_method:u8,
 
@@ -34,6 +35,7 @@ impl ConvolutionalLayer {
             num_filters: usize,
             filter_size: usize,
             learning_rate: f32,
+            lambda: f32,
             activation_function: u8,
             convolution_method: u8,
             ) -> ConvolutionalLayer {
@@ -42,6 +44,7 @@ impl ConvolutionalLayer {
             image_size,
             input_channels,
             learning_rate,
+            lambda,
             activation_function,
             filters: Array4::zeros((num_filters, input_channels, filter_size, filter_size)),
             biases: Array1::zeros(num_filters),
@@ -69,6 +72,10 @@ impl Layer for ConvolutionalLayer {
     fn pass(&self, input_dynamic: &ArrayViewD<f32>) -> ArrayD<f32> {
         let batch_size = input_dynamic.dim()[0];
         let input = input_dynamic.to_shape((batch_size, self.input_channels, self.image_size, self.image_size)).unwrap();
+        if input.is_any_nan() {
+            println!("Input:\n{}", input);
+            panic!("ConvLayer got NaN input.");
+        }
         let mut output = Array4::zeros((batch_size, self.num_filters, self.image_size, self.image_size));
 
         for sample in 0..batch_size {
@@ -140,9 +147,26 @@ impl Layer for ConvolutionalLayer {
             }
         }
         
-        let coefficient = -self.learning_rate/num_samples as f32;
+        //L2 Regularization
+        filter_gradients.scaled_add(self.lambda, &self.filters);
+        bias_gradients.scaled_add(self.lambda, &self.biases);
+
+        //Gradient clipping
+        let filter_gradients_norm = (&filter_gradients*&filter_gradients).sum().sqrt();
+        let bias_gradients_norm = (&bias_gradients*&bias_gradients).sum().sqrt();
+
+        let clipping_threshold = 2.;
+        if filter_gradients_norm > clipping_threshold {
+            filter_gradients *= clipping_threshold / filter_gradients_norm;
+        }
+        if bias_gradients_norm > clipping_threshold {
+            bias_gradients *= clipping_threshold / bias_gradients_norm;
+        }
+
+        let coefficient = self.learning_rate/num_samples as f32;
         self.filters.scaled_add(coefficient, &filter_gradients);
         self.biases.scaled_add(coefficient, &bias_gradients);
+
         output.into_dyn()
     }
 

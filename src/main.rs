@@ -8,6 +8,7 @@ pub mod layers;
 pub mod flow;
 pub mod networks;
 pub mod everhood;
+pub mod prelude;
 
 use std::fs::File;
 use std::io::Write;
@@ -170,7 +171,7 @@ const NUM_PRINTS_PER_GENERATION:u32 = 10;
 //both with 2000 epochs
 
 fn main() {
-    make_generic_net();
+    //make_generic_net();
     //let start = Instant::now();
     //generate_puzzles_3d(NUM_TRAINING_PUZZLES, NUM_THREADS);
     //println!("Finished in {:8.6}s.", start.elapsed().as_secs_f32());
