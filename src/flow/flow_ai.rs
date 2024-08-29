@@ -12,13 +12,10 @@ pub const PUZZLE_WIDTH: usize = 2;
 pub const COLORS: usize = PUZZLE_WIDTH*PUZZLE_WIDTH/2+2;
 pub const KEY: &str = "-0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ`~!@#$%^&*()=+;':\"[]\\{}|";
 pub fn convert() -> io::Result<(Array2<f32>, Array2<f32>)> {
-    // Open the file in read-only mode
     let mut file = File::open("testing.txt")?;
 
-    // Create a String to hold the file contents
     let mut contents = String::new();
 
-    // Read the file contents into the String
     file.read_to_string(&mut contents)?;
 
     let mut key_map = HashMap::new();
@@ -333,11 +330,11 @@ fn generate_path(
             println!("Trying to go to {:?}", direction);
         }
         let recursive_path = generate_path(reachable, &mut my_path, *direction, (x2, y2), max_size);
-        if !recursive_path.is_none() {
+        if recursive_path.is_some() {
             if debug {
                 println!("Succeeded.");
             }
-            return Some(recursive_path.unwrap());
+            return recursive_path;
         }
         else if debug {
             println!("Failed to go to {:?}.", direction);
@@ -510,8 +507,8 @@ fn convert_to_channels(grid: &Array2<f32>) -> Array3<f32> {
     output
 }
 
-/// Checks if the coordinates are edging, meaning they are along the edge of the reachable tiles.
-fn is_edging((x, y): (usize, usize), reachable: &Vec<(usize, usize)>) -> bool {
+///Checks if the coordinates are edging
+fn is_edging((x, y): (usize, usize), reachable: &[(usize, usize)]) -> bool {
     //Right, up, left, down
     let directions = [(1, 0), (0, 1), (-1, 0), (0, -1)];
     
@@ -519,7 +516,6 @@ fn is_edging((x, y): (usize, usize), reachable: &Vec<(usize, usize)>) -> bool {
         let new_x = x as isize + dx;
         let new_y = y as isize + dy;
         
-        //Make sure the new coordinates aren't gonna cause an underflow
         if new_x >= 0 && new_y >= 0 {
             let neighbor = (new_x as usize, new_y as usize);
             
@@ -531,11 +527,11 @@ fn is_edging((x, y): (usize, usize), reachable: &Vec<(usize, usize)>) -> bool {
         }
     }
     
-    false // (x, y) is not edging
+    false //(x, y) is not edging
 }
 
 ///Returns a list of all edge tiles using iterator and filter magic
-fn find_edges(reachable: &Vec<(usize, usize)>) -> Vec<(usize, usize)> {
+fn find_edges(reachable: &[(usize, usize)]) -> Vec<(usize, usize)> {
     reachable
         .iter()
         .filter(|&&tile| is_edging(tile, reachable))
@@ -550,9 +546,9 @@ fn edge_path(
     (x1, y1): (usize, usize),
     (x2, y2): (usize, usize),
 ) -> Option<Vec<(usize, usize)>> {
-    // Ensure both (x1, y1) and (x2, y2) are edging
+    //Make sure (x1, y1) and (x2, y2) are both edging
     if !is_edging((x1, y1), reachable) || !is_edging((x2, y2), reachable) {
-        return None; // One or both points are not edging
+        return None;
     }
 
     ///Depth-First Search (DFS) to find a path from the current tile to the target
@@ -563,7 +559,6 @@ fn edge_path(
         target: (usize, usize),
         visited: &mut Vec<(usize, usize)>,
     ) -> bool {
-        // Base case: if current tile is the target, path is found
         if current == target {
             return true;
         }
