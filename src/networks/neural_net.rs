@@ -55,6 +55,11 @@ impl NeuralNet {
         outputs.clone()
     }
 
+    pub fn predict(&self, input: &ArrayViewD<f32>) -> ArrayD<f32> {
+        let outputs = self.forward_pass(input);
+        outputs[outputs.len() - 1].clone()
+    }
+
     pub fn backpropagate(&mut self, input: &ArrayViewD<f32>, labels: &ArrayViewD<f32>) -> f32 {
         let outputs = self.forward_pass(input);
         let predictions = &outputs[outputs.len() - 1].view();
