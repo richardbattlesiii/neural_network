@@ -1,41 +1,45 @@
 use std::fmt::Display;
-use ndarray::{Array1, Array2};
-use rand::random;
+use ndarray::{Array1, Array2, Array3};
+use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 
 ///The odds that a fire starts at each position (at time 0)
-pub const FIRE_STARTING_CHANCE: f32 = 0.05;
+pub const FIRE_STARTING_CHANCE: f64 = 0.01;
 ///Controls how quickly the fire starting odds increase over time
 ///Starting at 0.0005, so after 1k it's just over 40%
 pub const FIRE_EXP_PARAMETER: f32 = 0.0005;
 ///How long you have to react before the fire kills you
-pub const FIRE_BUILDUP: u8 = 3;
+pub const FIRE_BUILDUP: u16 = 8;
 ///How long the fire lasts
-pub const FIRE_LENGTH: u8 = 4;
+pub const FIRE_LENGTH: u16 = 9;
 
 ///How many possible actions there are.
-pub const ACTIONS_NUM: u8 = 5;
+pub const ACTIONS_NUM: usize = 5;
 ///Do nothing.
-pub const ACTION_NOTHING: u8 = 0;
+pub const ACTION_NOTHING: u16 = 0;
 ///Move right.
-pub const ACTION_RIGHT: u8 = 1;
+pub const ACTION_RIGHT: u16 = 1;
 ///Move up.
-pub const ACTION_UP: u8 = 2;
+pub const ACTION_UP: u16 = 2;
 ///Move left.
-pub const ACTION_LEFT: u8 = 3;
+pub const ACTION_LEFT: u16 = 3;
 ///Move down.
-pub const ACTION_DOWN: u8 = 4;
+pub const ACTION_DOWN: u16 = 4;
 
 ///How far the player moves per update.
-pub const MOVE_SPEED: f32 = 0.5;
+pub const MOVE_SPEED: i32 = 1;
+
+///How many channels get_state will return.
+pub const NUM_STATE_CHANNELS: usize = 2;
 
 ///An instance of the game.
+#[derive(Clone)]
 pub struct Environment {
     time: u128,
     alive: bool,
-    position: (f32, f32),
+    position: (i32, i32),
     height: usize,
     width: usize,
-    fires: Vec<Vec<u8>>,
+    fires: Vec<Vec<u16>>,
 }
 
 impl Environment {
@@ -43,7 +47,7 @@ impl Environment {
         Environment{
             time: 0,
             alive: true,
-            position: (width as f32 / 2., height as f32 / 2.),
+            position: (width as i32 / 2, height as i32 / 2),
             fires: vec![vec![0; width]; height],
             height,
             width
@@ -55,7 +59,7 @@ impl Environment {
     }
 
     ///Updates the time, fires, and position based on the given action
-    pub fn update(&mut self, action: u8) {
+    pub fn update(&mut self, action: u16) {
         if !self.alive {
             panic!("Updated an unalive environment.");
         }
@@ -64,12 +68,13 @@ impl Environment {
         self.time += 1;
 
         //Update fires
+        let mut rng = StdRng::seed_from_u64(self.time as u64);
         for row in 0..self.height {
             for col in 0..self.width {
                 if self.fires[row][col] > 0 {
                     self.fires[row][col] += 1;
                 }
-                else if random::<f64>() < fire_chance(self.time) {
+                else if rng.gen::<f64>() < fire_chance(self.time) {
                     self.fires[row][col] = 1;
                 }
                 if self.fires[row][col] > FIRE_LENGTH {
@@ -99,36 +104,35 @@ impl Environment {
             }
         }
 
-        x = x.clamp(0., (self.width-1) as f32);
-        y = y.clamp(0., (self.height-1) as f32);
+        x = x.clamp(0, (self.width-1) as i32);
+        y = y.clamp(0, (self.height-1) as i32);
 
         self.position = (x, y);
     }
 
-    pub fn get_state(&self) -> Array1<f32> {
-        let len = 4 + self.height*self.width;
-        let mut output: Array1<f32> = Array1::zeros(len);
-
-        output[[0]] = self.time as f32;
-        output[[1]] = self.alive as u8 as f32;
-        output[[2]] = self.position.0;
-        output[[3]] = self.position.1;
-
+    pub fn get_state(&self) -> Array3<f32> {
+        //Fire states
+        let mut output: Array3<f32> = Array3::zeros((NUM_STATE_CHANNELS, self.height, self.width));
         for row in 0..self.height {
             for col in 0..self.width {
-                output[[4 + row*self.width + col]] = self.fires[row][col] as f32;
+                output[[0, row, col]] = self.fires[row][col] as f32;
             }
         }
-        /*
-            time: u128,
-            alive: bool,
-            position: (f32, f32),
-            height: usize,
-            width: usize,
-            fires: Vec<Vec<u8>>,
-        */
+
+        //Player position
+        output[[1, self.position.0 as usize, self.position.1 as usize]] = 1.;
+
         output
     }
+
+    pub fn time(&self) -> u128 {
+        self.time
+    }
+}
+
+fn fire_chance(time: u128) -> f64 {
+    FIRE_STARTING_CHANCE
+    //1. - ((1. - FIRE_STARTING_CHANCE) * (-FIRE_EXP_PARAMETER as f64 * time as f64).exp())
 }
 
 impl Display for Environment {
@@ -162,8 +166,4 @@ impl Display for Environment {
         output += "\n";
         write!(f, "{}", output)
     }
-}
-
-fn fire_chance(time: u128) -> f64 {
-    return 1. - (1. - FIRE_STARTING_CHANCE) as f64 * (-FIRE_EXP_PARAMETER as f64 * time as f64).exp()
 }

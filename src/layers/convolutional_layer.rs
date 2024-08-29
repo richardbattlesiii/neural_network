@@ -1,7 +1,7 @@
 use crate::helpers::{activation_functions::*, fft};
 use rand::distributions::Uniform;
 use rand::prelude::Distribution;
-use ndarray::{s, Array1, Array2, Array4, ArrayView2, ArrayView4, ArrayD, ArrayViewD, Axis};
+use ndarray::{s, Array1, Array2, Array4, ArrayView2, ArrayD, ArrayViewD, Axis};
 
 use super::layer::Layer;
 
@@ -18,6 +18,7 @@ pub struct ConvolutionalLayer {
     pub input_channels:usize,
 
     pub learning_rate:f32,
+    lambda:f32,
     pub activation_function:u8,
     convolution_method:u8,
 
@@ -34,6 +35,7 @@ impl ConvolutionalLayer {
             num_filters: usize,
             filter_size: usize,
             learning_rate: f32,
+            lambda: f32,
             activation_function: u8,
             convolution_method: u8,
             ) -> ConvolutionalLayer {
@@ -42,6 +44,7 @@ impl ConvolutionalLayer {
             image_size,
             input_channels,
             learning_rate,
+            lambda,
             activation_function,
             filters: Array4::zeros((num_filters, input_channels, filter_size, filter_size)),
             biases: Array1::zeros(num_filters),
@@ -51,12 +54,7 @@ impl ConvolutionalLayer {
         }
     }
 
-    pub fn get_weights_magnitude(&self) -> f32 {
-        (&self.filters * &self.filters).sum().sqrt()
-    }
-}
-impl Layer for ConvolutionalLayer {
-    fn initialize(&mut self) {
+    pub fn initialize(&mut self) {
         let filter_units = self.filter_size*self.filter_size;
         let input_units = self.input_channels*filter_units;
         let output_units = self.num_filters*filter_units;
@@ -69,6 +67,10 @@ impl Layer for ConvolutionalLayer {
     fn pass(&self, input_dynamic: &ArrayViewD<f32>) -> ArrayD<f32> {
         let batch_size = input_dynamic.dim()[0];
         let input = input_dynamic.to_shape((batch_size, self.input_channels, self.image_size, self.image_size)).unwrap();
+        if input.is_any_nan() {
+            println!("Input:\n{}", input);
+            panic!("ConvLayer got NaN input.");
+        }
         let mut output = Array4::zeros((batch_size, self.num_filters, self.image_size, self.image_size));
 
         for sample in 0..batch_size {
@@ -79,34 +81,27 @@ impl Layer for ConvolutionalLayer {
                 let mut output_filter = output_sample.index_axis_mut(Axis(0), filter_num);
                 let filter = self.filters.index_axis(Axis(0), filter_num);
 
-                for channel in 0..self.input_channels {
+                for channel in 0..channels {
                     let input_channel = input_sample.index_axis(Axis(0), channel);
                     let filter_channel = filter.index_axis(Axis(0), channel);
-                    let convolution = convolve(&input_channel, &filter_channel, self.convolution_method);
-                    output_filter += &convolution.to_shape((self.image_size, self.image_size)).unwrap();
+                    let convolution = convolve_and_slide(&input_channel, &filter_channel, PADDING_SAME);
+                    output_filter += &convolution.to_shape((image_size, image_size)).unwrap();
                 }
             }
         }
 
-        output.into_dyn()
+        output
     }
 
-    fn backpropagate(&mut self, input_dynamic: &ArrayViewD<f32>,
-            my_output_dynamic: &ArrayViewD<f32>, error_dynamic: &ArrayViewD<f32>) -> ArrayD<f32> {
-        let num_samples = input_dynamic.dim()[0];
-
-        let input = input_dynamic.to_shape((num_samples, self.input_channels, self.image_size, self.image_size)).unwrap();
-
-        let output_shape = (num_samples, self.num_filters, self.image_size, self.image_size);
-        let my_output = my_output_dynamic.to_shape(output_shape).unwrap();
-        let error = error_dynamic.to_shape(output_shape).unwrap();
-
+    pub fn backpropagate(&mut self, input: &ArrayView4<f32>,
+            my_output: &ArrayView4<f32>, error: &ArrayView4<f32>) -> Array4<f32> {
+        let (num_samples, input_channels, image_size, _) = input.dim();
         //dLoss/dFilters
-        let mut filter_gradients: Array4<f32> = Array4::zeros((self.num_filters, self.input_channels, self.filter_size, self.filter_size));
+        let mut filter_gradients: Array4<f32> = Array4::zeros((self.num_filters, input_channels, self.filter_size, self.filter_size));
         //dLoss/dBiases
         let mut bias_gradients: Array1<f32> = Array1::zeros(self.num_filters);
         //dLoss/dInputs
-        let mut output: Array4<f32> = Array4::zeros((num_samples, self.input_channels, self.image_size, self.image_size));
+        let mut output: Array4<f32> = Array4::zeros((num_samples, input_channels, image_size, image_size));
         //println!("Filters: {:?}", self.filters.shape());
 
         for sample in 0..num_samples {
@@ -118,48 +113,59 @@ impl Layer for ConvolutionalLayer {
                 //Calculate gradient of loss with respect to the non-activated output
                 let filter = self.filters.index_axis(Axis(0), filter_num);
                 let current_output = sample_output.index_axis(Axis(0), filter_num);
-                let mut derivative = current_output.to_owned().into_dyn();
-                activation_derivative(self.activation_function, &mut derivative);
-                let derivative = derivative.to_shape((self.image_size, self.image_size)).unwrap();
+                let mut derivative = current_output.to_owned();
+                activation_derivative_2d(self.activation_function, &mut derivative);
 
                 let current_error = sample_error.index_axis(Axis(0), filter_num);
                 let dl_do = &current_error * &derivative;
                 bias_gradients[[filter_num]] += dl_do.sum();
 
-                for channel in 0..self.input_channels {
+                for channel in 0..input_channels {
                     let current_input = sample_input.index_axis(Axis(0), channel);
                     let current_gradients = calculate_filter_gradients(&current_input, &dl_do.view(), self.filter_size);
                     filter_gradients.slice_mut(s![filter_num, channel, .., ..]).assign(&current_gradients);
                     
                     let current_filter = filter.index_axis(Axis(0), channel);
                     let flipped = current_filter.slice(s![..;-1, ..;-1]);
-                    let convolution = convolve(&current_input, &flipped, self.convolution_method);
-                    let current_output = convolution.to_shape((self.image_size, self.image_size)).unwrap();
+                    let convolution = convolve_and_slide(&current_input, &flipped, PADDING_SAME);
+                    let current_output = convolution.to_shape((image_size, image_size)).unwrap();
                     output.slice_mut(s![sample, channel, .., ..]).assign(&current_output);
                 }
             }
         }
         
-        let coefficient = -self.learning_rate/num_samples as f32;
+        //L2 Regularization
+        filter_gradients.scaled_add(self.lambda, &self.filters);
+        bias_gradients.scaled_add(self.lambda, &self.biases);
+
+        //Gradient clipping
+        let filter_gradients_norm = (&filter_gradients*&filter_gradients).sum().sqrt();
+        let bias_gradients_norm = (&bias_gradients*&bias_gradients).sum().sqrt();
+
+        let clipping_threshold = 2.;
+        if filter_gradients_norm > clipping_threshold {
+            filter_gradients *= clipping_threshold / filter_gradients_norm;
+        }
+        if bias_gradients_norm > clipping_threshold {
+            bias_gradients *= clipping_threshold / bias_gradients_norm;
+        }
+
+        let coefficient = self.learning_rate/num_samples as f32;
         self.filters.scaled_add(coefficient, &filter_gradients);
         self.biases.scaled_add(coefficient, &bias_gradients);
+
         output.into_dyn()
     }
 
-    fn set_learning_rate(&mut self, rate: f32) {
+    pub fn set_learning_rate(&mut self, rate: f32) {
         self.learning_rate = rate;
     }
-    
-    fn get_input_shape(&self) -> Vec<usize> {
-        vec![self.input_channels, self.image_size, self.image_size]
-    }
-    
-    fn get_output_shape(&self) -> Vec<usize> {
-        vec![self.num_filters, self.image_size, self.image_size]
+
+    pub fn get_weights_magnitude(&self) -> f32 {
+        (&self.filters * &self.filters).sum().sqrt()
     }
 }
 
-///Performs the given convolution method.
 pub fn convolve(input: &ArrayView2<f32>, kernel: &ArrayView2<f32>, convolution_method: u8) -> Array2<f32> {
     match convolution_method {
         CONVOLUTION_BASIC => convolve_and_slide(input, kernel, PADDING_SAME),

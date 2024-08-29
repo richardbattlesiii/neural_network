@@ -22,6 +22,10 @@ impl Layer for ReshapingLayer {
     fn set_learning_rate(&mut self, rate: f32) {}
     
     fn pass(&self, input: &ArrayViewD<f32>) -> ArrayD<f32> {
+        if input.is_any_nan() {
+            println!("Input:\n{}", input);
+            panic!("Reshaping layer got NaN input.");
+        }
         let batch_size = input.dim()[0];
         let mut output_vec = self.output_shape.clone();
         output_vec.insert(0, batch_size);
