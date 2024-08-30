@@ -8,35 +8,35 @@ pub const FIRE_STARTING_CHANCE: f64 = 0.1;
 ///Starting at 0.0005, so after 1k it's just over 40%
 pub const FIRE_EXP_PARAMETER: f32 = 0.0005;
 ///How long you have to react before the fire kills you
-pub const FIRE_BUILDUP: u16 = 2;
+pub const FIRE_BUILDUP: u16 = 1;
 ///How long the fire lasts
-pub const FIRE_LENGTH: u16 = 3;
+pub const FIRE_LENGTH: u16 = 2;
 
 ///How many possible actions there are.
-pub const ACTIONS_NUM: usize = 5;
-///Do nothing.
-pub const ACTION_NOTHING: u16 = 0;
+pub const ACTIONS_NUM: usize = 4;
 ///Move right.
-pub const ACTION_RIGHT: u16 = 1;
+pub const ACTION_RIGHT: u16 = 0;
 ///Move up.
-pub const ACTION_UP: u16 = 2;
+pub const ACTION_UP: u16 = 1;
 ///Move left.
-pub const ACTION_LEFT: u16 = 3;
+pub const ACTION_LEFT: u16 = 2;
 ///Move down.
-pub const ACTION_DOWN: u16 = 4;
+pub const ACTION_DOWN: u16 = 3;
+///Do nothing.
+pub const ACTION_NOTHING: u16 = 4;
 
 ///How far the player moves per update.
-pub const MOVE_SPEED: usize = 1;
+pub const MOVE_SPEED: isize = 1;
 
 ///How many channels get_state will return.
-pub const NUM_STATE_CHANNELS: usize = 2;
+pub const NUM_STATE_CHANNELS: usize = 1+FIRE_LENGTH as usize;
 
 ///An instance of the game.
 #[derive(Clone)]
 pub struct Environment {
     time: u128,
     alive: bool,
-    position: (usize, usize),
+    position: (isize, isize),
     height: usize,
     width: usize,
     fires: Vec<Vec<u16>>,
@@ -47,7 +47,7 @@ impl Environment {
         Environment{
             time: 0,
             alive: true,
-            position: (width / 2, height / 2),
+            position: (width as isize / 2, height as isize / 2),
             fires: vec![vec![0; width]; height],
             height,
             width
@@ -59,7 +59,7 @@ impl Environment {
     }
 
     pub fn is_player_on_fire(&self) -> bool {
-        self.fires[self.position.0][self.position.1] > 0
+        self.fires[self.position.0 as usize][self.position.1 as usize] > 0
     }
 
     ///Updates the time, fires, and position based on the given action
@@ -108,8 +108,8 @@ impl Environment {
             }
         }
 
-        x = x.clamp(0, self.width-1);
-        y = y.clamp(0, self.height-1);
+        x = x.clamp(0, self.width as isize - 1);
+        y = y.clamp(0, self.height as isize - 1);
 
         self.position = (x, y);
     }
@@ -119,17 +119,18 @@ impl Environment {
         let (x, y) = (self.position.0 as f32, self.position.1 as f32);
         for row in 0..self.height {
             for col in 0..self.width {
-                //Fire states
-                output[[0, row, col]] = (self.fires[row][col] / FIRE_LENGTH) as f32;
-                //Player position -- each tile has value 1/distance
+                //Player position -- each tile has value 1/(distance + 1)
                 let r = row as f32;
                 let c = col as f32;
-                output[[1, row, col]] = ((r-y)*(r-y)+(c-x)*(c-x)).sqrt();
+                output[[0, row, col]] = 1./(((r-y)*(r-y)+(c-x)*(c-x)).sqrt() + 1.);
+                //Fire states
+                let fire_value = self.fires[row][col] as usize;
+                output[[fire_value, row, col]] = 1.;
             }
         }
 
         //Player position
-        output[[1, self.position.0 as usize, self.position.1 as usize]] = 1.;
+        //output[[1, self.position.0 as usize, self.position.1 as usize]] = 1.;
 
         output
     }
@@ -140,8 +141,8 @@ impl Environment {
 }
 
 fn fire_chance(time: u128) -> f64 {
-    FIRE_STARTING_CHANCE
-    //1. - ((1. - FIRE_STARTING_CHANCE) * (-FIRE_EXP_PARAMETER as f64 * time as f64).exp())
+    //FIRE_STARTING_CHANCE
+    1. - ((1. - FIRE_STARTING_CHANCE) * (-FIRE_EXP_PARAMETER as f64 * time as f64).exp())
 }
 
 impl Display for Environment {

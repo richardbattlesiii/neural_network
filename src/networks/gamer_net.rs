@@ -4,7 +4,7 @@ use std::io::ErrorKind::WouldBlock;
 use std::fs::File;
 use std::thread;
 use std::time::{Duration, Instant};
-use ndarray::{ArrayD, Axis};
+use ndarray::prelude::*;
 use crate::everhood::everhood::{self, ACTIONS_NUM};
 use crate::everhood::everhood::Environment;
 use crate::helpers::activation_functions::{RELU, SIGMOID};
@@ -13,24 +13,25 @@ use super::neural_net::NeuralNet;
 
 const GAMMA: f32 = 0.99;
 const LEARNING_RATE: f32 = 0.1;
-const LAMBDA: f32 = 0.3;
+const LAMBDA: f32 = 0.1;
 
-const MAX_EPISODES: i32 = 1000000;
+const MAX_EPISODES: i32 = 100001;
 const PRINTERVAL: i32 = 100;
 const ENV_PRINTERVAL: i32 = PRINTERVAL*10;
-const HEIGHT: usize = 5;
-const WIDTH: usize = 5;
+const HEIGHT: usize = 3;
+const WIDTH: usize = 3;
 
 pub fn make_gamer_net() {
-    let mut episode = 1;
+    let mut episode = 0;
 
     let mut net = NeuralNet::new();
 
     //Convolutional layers
     let size = everhood::NUM_STATE_CHANNELS*HEIGHT*WIDTH;
     let num_channels = &[everhood::NUM_STATE_CHANNELS, 8, 16];
+    let num_conv_layers = 2;
     let convolutional_layer_sizes = &[3, 3, 5];
-    for i in 0..num_channels.len()-1 {
+    for i in 0..num_conv_layers {
         net.add_layer(Box::from(ConvolutionalLayer::new(
                 HEIGHT,
                 num_channels[i],
@@ -43,8 +44,8 @@ pub fn make_gamer_net() {
     }
 
     //Reshaping layer
-    let last_convolutional_layer_shape = vec![num_channels[num_channels.len()-1], HEIGHT, WIDTH];
-    let dense_layer_input_shape = num_channels[num_channels.len()-1]*HEIGHT*WIDTH;
+    let last_convolutional_layer_shape = vec![num_channels[num_conv_layers], HEIGHT, WIDTH];
+    let dense_layer_input_shape = num_channels[num_conv_layers]*HEIGHT*WIDTH;
     net.add_layer(Box::from(ReshapingLayer::new(
         last_convolutional_layer_shape,
         vec![dense_layer_input_shape]
@@ -63,34 +64,36 @@ pub fn make_gamer_net() {
         )));
     }
 
-    //Outputlayer
+    //Output layer
     net.add_layer(Box::from(DenseLayer::new(
         dense_layer_sizes[num_dense_layers-1],
         dense_layer_sizes[num_dense_layers],
         LEARNING_RATE,
         LAMBDA,
-        SIGMOID
+        RELU
     )));
-    // net.add_layer(Box::from(SoftmaxLayer::new(
-    //     everhood::ACTIONS_NUM,
-    //     1,
-    // )));
+    net.add_layer(Box::from(SoftmaxLayer::new(
+        everhood::ACTIONS_NUM,
+        1,
+    )));
 
     net.initialize();
 
     //Start the actual training
-    let mut epsilon = 0.9;
+    let mut epsilon = 0.2;
     let mut best_time = 0;
     let start = Instant::now();
     while episode < MAX_EPISODES {
         let mut env = Environment::new(HEIGHT, WIDTH);
         while env.is_alive() {
-            if episode % (ENV_PRINTERVAL) == 0 {
-                println!("{}", env);
-            }
             let current_state = env.get_state().into_dyn();
             let converted_state = current_state.view().insert_axis(Axis(0));
             let q_values = net.predict(&converted_state);
+            let q_values = q_values.to_shape((1, q_values.len())).unwrap().to_owned();
+            if episode % (ENV_PRINTERVAL) == 0 {
+                println!("{}", env);
+                println!("Q values:\n{}\n", q_values);
+            }
             if q_values.is_any_nan() {
                 //println!("Env:\n{}", env);
                 println!("Q values:\n{}\n", q_values);
@@ -104,25 +107,33 @@ pub fn make_gamer_net() {
             let mut reward;
             let max_predicted_q;
             if env.is_alive() {
-                reward = (env.time() as f32).sqrt()/2.;
+                reward = 1.;
                 if env.is_player_on_fire() {
-                    reward /= 4.;
+                    reward = -0.5;
                 }
+                // reward = (env.time() as f32).sqrt()/2.;
+                // if env.is_player_on_fire() {
+                //     reward /= 4.;
+                // }
                 if env.time() > best_time {
                     best_time = env.time();
-                    reward += 100.;
+                    reward += 1.;
                 }
                 max_predicted_q = max_predicted_next_q(&net, &env);
             }
             else {
-                reward = (env.time() as f32).cbrt()/2. -(episode as f32 + 1.).ln();
+                reward = -2.;
+                //reward = (env.time() as f32).cbrt()/2. -(episode as f32 + 1.).ln();
                 max_predicted_q = 0.;
             }
             //println!("Reward at time {} is {}.", env.time(), reward);
-            let future_value = reward + GAMMA*max_predicted_q - &q_values;
-            let mut labels: ArrayD<f32> = q_values.clone();
-            labels.scaled_add(LEARNING_RATE, &future_value);
-            net.backpropagate(&converted_state, &labels.view());
+            let future_value = reward + GAMMA * max_predicted_q;
+            let mut labels = q_values.clone();
+            labels[[0, action.0 as usize]] =
+            (1.0 - LEARNING_RATE) * q_values[[0, action.0 as usize]] +
+            LEARNING_RATE * (reward + GAMMA * max_predicted_q);
+
+            net.backpropagate(&converted_state, &labels.view().into_dyn());
         }
         if episode % (ENV_PRINTERVAL) == 0 {
             println!("{}", env);
@@ -131,14 +142,14 @@ pub fn make_gamer_net() {
             println!("Lasted for {} steps on episode {}.", env.time(), episode);
             println!("\tEpsilon: {}", epsilon);
         }
-        epsilon *= 0.9995;
+        epsilon *= 0.9999;
         episode += 1;
     }
     let duration = start.elapsed().as_millis();
     println!("Finished in {}ms.", duration);
 }
 
-fn get_action(q_values: &ArrayD<f32>, epsilon: f32) -> (u16, f32) {
+fn get_action(q_values: &Array2<f32>, epsilon: f32) -> (u16, f32) {
     //println!("Getting action from:\n{}", q_values);
     let q_values = q_values.to_shape(q_values.len()).unwrap();
     let mut rng = rand::thread_rng();
@@ -171,6 +182,7 @@ fn max_predicted_next_q(net: &NeuralNet, env: &Environment) -> f32 {
         let mut env = env.clone();
         env.update(action as u16);
         let current_q_values = net.predict(&env.get_state().into_dyn().view().insert_axis(Axis(0)));
+        let current_q_values = current_q_values.to_shape((1, current_q_values.len())).unwrap().to_owned();
         let current_best = get_action(&current_q_values, 0.).1;
         if current_best > max {
             max = current_best;

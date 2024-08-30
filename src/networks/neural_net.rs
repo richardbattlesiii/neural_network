@@ -77,6 +77,9 @@ impl NeuralNet {
     
 pub fn calculate_bce_loss(predictions: &ArrayViewD<f32>, labels: &ArrayViewD<f32>) -> f32 {
     let mut loss = 0.0;
+    if predictions.shape() != labels.shape() {
+        panic!("Mismatched shapes: {:?} predictions and {:?} labels.", predictions.shape(), labels.shape());
+    }
     for (index, pred) in predictions.indexed_iter() {
         let epsilon = 1e-7;
         let label = labels[index].clamp(epsilon, 1.0-epsilon);
