@@ -3,14 +3,14 @@ use ndarray::{Array1, Array2, Array3};
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 
 ///The odds that a fire starts at each position (at time 0)
-pub const FIRE_STARTING_CHANCE: f64 = 0.01;
+pub const FIRE_STARTING_CHANCE: f64 = 0.1;
 ///Controls how quickly the fire starting odds increase over time
 ///Starting at 0.0005, so after 1k it's just over 40%
 pub const FIRE_EXP_PARAMETER: f32 = 0.0005;
 ///How long you have to react before the fire kills you
-pub const FIRE_BUILDUP: u16 = 1;
+pub const FIRE_BUILDUP: u16 = 2;
 ///How long the fire lasts
-pub const FIRE_LENGTH: u16 = 2;
+pub const FIRE_LENGTH: u16 = 3;
 
 ///How many possible actions there are.
 pub const ACTIONS_NUM: usize = 5;
@@ -26,7 +26,7 @@ pub const ACTION_LEFT: u16 = 3;
 pub const ACTION_DOWN: u16 = 4;
 
 ///How far the player moves per update.
-pub const MOVE_SPEED: i32 = 1;
+pub const MOVE_SPEED: usize = 1;
 
 ///How many channels get_state will return.
 pub const NUM_STATE_CHANNELS: usize = 2;
@@ -36,7 +36,7 @@ pub const NUM_STATE_CHANNELS: usize = 2;
 pub struct Environment {
     time: u128,
     alive: bool,
-    position: (i32, i32),
+    position: (usize, usize),
     height: usize,
     width: usize,
     fires: Vec<Vec<u16>>,
@@ -47,7 +47,7 @@ impl Environment {
         Environment{
             time: 0,
             alive: true,
-            position: (width as i32 / 2, height as i32 / 2),
+            position: (width / 2, height / 2),
             fires: vec![vec![0; width]; height],
             height,
             width
@@ -56,6 +56,10 @@ impl Environment {
 
     pub fn is_alive(&self) -> bool {
         self.alive
+    }
+
+    pub fn is_player_on_fire(&self) -> bool {
+        self.fires[self.position.0][self.position.1] > 0
     }
 
     ///Updates the time, fires, and position based on the given action
@@ -104,8 +108,8 @@ impl Environment {
             }
         }
 
-        x = x.clamp(0, (self.width-1) as i32);
-        y = y.clamp(0, (self.height-1) as i32);
+        x = x.clamp(0, self.width-1);
+        y = y.clamp(0, self.height-1);
 
         self.position = (x, y);
     }
@@ -149,11 +153,11 @@ impl Display for Environment {
         for row in 0..self.height {
             for col in 0..self.width {
                 if col == player_x && row == player_y {
-                    if self.alive {
-                        output += " O ";
-                    }
-                    else {
-                        output += " X ";
+                    output += match (self.alive, self.is_player_on_fire()) {
+                        (true, false) => " O ",
+                        (false, false) => " X ",
+                        (true, true) => " @ ",
+                        (false, true) => " % ",
                     }
                 }
                 else {

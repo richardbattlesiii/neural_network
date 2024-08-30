@@ -12,14 +12,14 @@ use crate::{convolutional_layer, prelude::*};
 use super::neural_net::NeuralNet;
 
 const GAMMA: f32 = 0.99;
-const LEARNING_RATE: f32 = 0.01;
+const LEARNING_RATE: f32 = 0.1;
 const LAMBDA: f32 = 0.3;
 
 const MAX_EPISODES: i32 = 1000000;
-const PRINTERVAL: i32 = 50;
+const PRINTERVAL: i32 = 100;
 const ENV_PRINTERVAL: i32 = PRINTERVAL*10;
-const HEIGHT: usize = 3;
-const WIDTH: usize = 3;
+const HEIGHT: usize = 5;
+const WIDTH: usize = 5;
 
 pub fn make_gamer_net() {
     let mut episode = 1;
@@ -79,7 +79,8 @@ pub fn make_gamer_net() {
     net.initialize();
 
     //Start the actual training
-    let mut epsilon = 0.4;
+    let mut epsilon = 0.9;
+    let mut best_time = 0;
     let start = Instant::now();
     while episode < MAX_EPISODES {
         let mut env = Environment::new(HEIGHT, WIDTH);
@@ -100,10 +101,17 @@ pub fn make_gamer_net() {
             env.update(action.0);
 
             //Reward function
-            let reward;
+            let mut reward;
             let max_predicted_q;
             if env.is_alive() {
-                reward = (env.time() as f32).sqrt()/4.;
+                reward = (env.time() as f32).sqrt()/2.;
+                if env.is_player_on_fire() {
+                    reward /= 4.;
+                }
+                if env.time() > best_time {
+                    best_time = env.time();
+                    reward += 100.;
+                }
                 max_predicted_q = max_predicted_next_q(&net, &env);
             }
             else {
@@ -121,9 +129,9 @@ pub fn make_gamer_net() {
         }
         if episode % PRINTERVAL == 0 {
             println!("Lasted for {} steps on episode {}.", env.time(), episode);
-            //println!("Epsilon: {}", epsilon);
+            println!("\tEpsilon: {}", epsilon);
         }
-        epsilon *= 0.9999;
+        epsilon *= 0.9995;
         episode += 1;
     }
     let duration = start.elapsed().as_millis();

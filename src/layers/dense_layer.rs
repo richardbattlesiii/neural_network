@@ -55,17 +55,20 @@ impl Layer for DenseLayer {
         let output = grad.dot(&self.weights.t());
         
         let mut weight_gradients = input.t().dot(&grad);
-        //L2 Regularization... it's that easy!
-        weight_gradients.scaled_add(self.lambda, &self.weights);
         let mut bias_gradients = grad.sum_axis(ndarray::Axis(0));
-        
+
+        //Gradient clipping
         const CLIP_THRESHOLD: f32 = 1.0;
         weight_gradients.mapv_inplace(|x| x.clamp(-CLIP_THRESHOLD, CLIP_THRESHOLD));
         bias_gradients.mapv_inplace(|x| x.clamp(-CLIP_THRESHOLD, CLIP_THRESHOLD));
+
+        //L2 Regularization... it's that easy!
+        weight_gradients.scaled_add(self.lambda, &self.weights);
+        bias_gradients.scaled_add(self.lambda, &self.biases);
     
         let coefficient = -self.learning_rate / input.nrows() as f32;
-        self.biases.scaled_add(coefficient, &bias_gradients);
         self.weights.scaled_add(coefficient, &weight_gradients);
+        self.biases.scaled_add(coefficient, &bias_gradients);
         
         for i in 0..self.biases.len() {
             if self.biases[i].abs() > 100.0 {
