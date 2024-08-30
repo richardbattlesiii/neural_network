@@ -15,6 +15,7 @@ impl SoftmaxLayer {
         }
     }
 }
+
 impl Layer for SoftmaxLayer {
     
     ///Does nothing.

@@ -8,9 +8,9 @@ pub const FIRE_STARTING_CHANCE: f64 = 0.01;
 ///Starting at 0.0005, so after 1k it's just over 40%
 pub const FIRE_EXP_PARAMETER: f32 = 0.0005;
 ///How long you have to react before the fire kills you
-pub const FIRE_BUILDUP: u16 = 8;
+pub const FIRE_BUILDUP: u16 = 1;
 ///How long the fire lasts
-pub const FIRE_LENGTH: u16 = 9;
+pub const FIRE_LENGTH: u16 = 2;
 
 ///How many possible actions there are.
 pub const ACTIONS_NUM: usize = 5;
@@ -111,11 +111,16 @@ impl Environment {
     }
 
     pub fn get_state(&self) -> Array3<f32> {
-        //Fire states
         let mut output: Array3<f32> = Array3::zeros((NUM_STATE_CHANNELS, self.height, self.width));
+        let (x, y) = (self.position.0 as f32, self.position.1 as f32);
         for row in 0..self.height {
             for col in 0..self.width {
-                output[[0, row, col]] = self.fires[row][col] as f32;
+                //Fire states
+                output[[0, row, col]] = (self.fires[row][col] / FIRE_LENGTH) as f32;
+                //Player position -- each tile has value 1/distance
+                let r = row as f32;
+                let c = col as f32;
+                output[[1, row, col]] = ((r-y)*(r-y)+(c-x)*(c-x)).sqrt();
             }
         }
 

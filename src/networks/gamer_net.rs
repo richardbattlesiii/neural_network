@@ -13,13 +13,13 @@ use super::neural_net::NeuralNet;
 
 const GAMMA: f32 = 0.99;
 const LEARNING_RATE: f32 = 0.01;
-const LAMBDA: f32 = 0.5;
+const LAMBDA: f32 = 0.3;
 
-const MAX_EPISODES: i32 = 10000;
+const MAX_EPISODES: i32 = 1000000;
 const PRINTERVAL: i32 = 50;
 const ENV_PRINTERVAL: i32 = PRINTERVAL*10;
-const HEIGHT: usize = 5;
-const WIDTH: usize = 5;
+const HEIGHT: usize = 3;
+const WIDTH: usize = 3;
 
 pub fn make_gamer_net() {
     let mut episode = 1;
@@ -98,6 +98,8 @@ pub fn make_gamer_net() {
             }
             let action = get_action(&q_values, epsilon);
             env.update(action.0);
+
+            //Reward function
             let reward;
             let max_predicted_q;
             if env.is_alive() {
@@ -105,7 +107,7 @@ pub fn make_gamer_net() {
                 max_predicted_q = max_predicted_next_q(&net, &env);
             }
             else {
-                reward = -1.;
+                reward = (env.time() as f32).cbrt()/2. -(episode as f32 + 1.).ln();
                 max_predicted_q = 0.;
             }
             //println!("Reward at time {} is {}.", env.time(), reward);
