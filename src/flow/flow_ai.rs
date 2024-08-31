@@ -8,7 +8,7 @@ use rand::{random, Rng};
 use rand::seq::SliceRandom;
 
 
-pub const PUZZLE_WIDTH: usize = 2;
+pub const PUZZLE_WIDTH: usize = 12;
 pub const COLORS: usize = PUZZLE_WIDTH*PUZZLE_WIDTH/2+2;
 pub const KEY: &str = "-0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ`~!@#$%^&*()=+;':\"[]\\{}|";
 pub fn convert() -> io::Result<(Array2<f32>, Array2<f32>)> {
@@ -129,7 +129,13 @@ pub fn generate_puzzles_3d(num_puzzles: usize, num_threads: u8) -> (Array4<f32>,
                 println!("{}%...", ((puzzle_num * 100 / num_puzzles) as f32 / 5.0).round() * 5.0);
             }
 
-            let solution_2d = generate_solution();
+            let solution_2d =
+                    if PUZZLE_WIDTH < 8 {
+                        generate_solution()
+                    }
+                    else {
+                        generate_solution_with_edging()
+                    };
             let puzzle_2d = remove_solution(&solution_2d);
     
             let solution_1d = one_hot_encode(&solution_2d);
@@ -191,6 +197,91 @@ pub fn generate_solution() -> Array2<f32> {
         }
         let mut path: Vec<(usize, usize)> = vec![(x1, y1)];
         let path = generate_path(group, &mut path, (x1, y1), (x2, y2), (grid.nrows(), grid.ncols()));
+
+        //Empty path means it was impossible to generate (though that shouldn't be possible...)
+        if path.is_none() {
+            panic!("Generated path was empty... how did that happen? Probably a bug in find_reachable.");
+        }
+
+        //Add the generated path to the grid.
+        for (current_x, current_y) in path.unwrap() {
+            grid[[current_x, current_y]] = current_color as f32;
+        }
+        if debug {
+            println!("Grid is now:\n{}", grid);
+        }
+
+        //Update reachable.
+        reachable = find_reachable(&grid);
+
+        current_color += 1;
+    }
+    
+    if debug {
+        println!("Pre-color shuffle:\n{}", grid);
+    }
+    //Shuffle the colors so the net doesn't just predict 2 every time.
+    let mut colors = vec![];
+    for i in 2..COLORS {
+        colors.push(i as f32);
+    }
+
+    colors.shuffle(&mut rand::thread_rng());
+    for row in 0..grid.nrows() {
+        for col in 0..grid.ncols() {
+            if grid[[row, col]] > 1.0 {
+                grid[[row, col]] = colors[(grid[[row, col]] as usize) % (COLORS-2)];
+            }
+        }
+    }
+
+    if debug {
+        println!("Post-shuffle:\n{}", grid);
+    }
+    grid
+}
+
+pub fn generate_solution_with_edging() -> Array2<f32> {
+    let debug = false;
+    if debug {
+        println!("Generating edging solution.");
+    }
+    let mut grid: Array2<f32> = Array2::zeros((PUZZLE_WIDTH, PUZZLE_WIDTH));
+    //Represents groups of tile coordinates that are still 0 and can reach each other.
+    //Only includes groups with at least 2 members, so that a path can be generated.
+    let mut reachable = find_reachable(&grid);
+    //Start at 2 because 0 is reserved for impassable tiles and 1 is reserved for empty but passable
+    let mut current_color = 2;
+    while current_color < COLORS && !reachable.is_empty() {
+        if debug {
+            println!("Color is {}.", current_color);
+        }
+        let group_num: usize = (random::<f32>() * reachable.len() as f32) as usize;
+        let group = find_edges(&reachable[group_num]);
+        if debug {
+            println!("Group {} is:\n{:?}", group_num, group);
+        }
+        let group_size = group.len();
+        let mut rng = rand::thread_rng();
+        let mut node1 = rng.gen_range(0..group_size);
+        let mut node2 = rng.gen_range(0..group_size);
+        while node1 == node2 {
+            node1 = rng.gen_range(0..group_size);
+            node2 = rng.gen_range(0..group_size);
+        }
+
+        if debug {
+            println!("Successfully generated separate nodes: {} and {}", node1, node2);
+        }
+
+        let (x1, y1) = group[node1];
+        let (x2, y2) = group[node2];
+
+        if debug {
+            println!("Generating path from ({}, {}) to ({}, {}).", x1, y1, x2, y2);
+        }
+        let mut path: Vec<(usize, usize)> = vec![(x1, y1)];
+        let path = generate_path(&group, &mut path, (x1, y1), (x2, y2), (grid.nrows(), grid.ncols()));
 
         //Empty path means it was impossible to generate (though that shouldn't be possible...)
         if path.is_none() {
@@ -509,8 +600,8 @@ fn convert_to_channels(grid: &Array2<f32>) -> Array3<f32> {
 
 ///Checks if the coordinates are edging
 fn is_edging((x, y): (usize, usize), reachable: &[(usize, usize)]) -> bool {
-    //Right, up, left, down
-    let directions = [(1, 0), (0, 1), (-1, 0), (0, -1)];
+    //Right, up, left, down, up right, down left, down right, up left
+    let directions = [(1, 0), (0, 1), (-1, 0), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1)];
     
     for (dx, dy) in directions.iter() {
         let new_x = x as isize + dx;
@@ -524,6 +615,9 @@ fn is_edging((x, y): (usize, usize), reachable: &[(usize, usize)]) -> bool {
                 //we edging frfr on god
                 return true;
             }
+        }
+        else {
+            return true;
         }
     }
     
@@ -541,12 +635,11 @@ fn find_edges(reachable: &[(usize, usize)]) -> Vec<(usize, usize)> {
 
 ///Finds a path along the edge between (x1, y1) and (x2, y2) if it exists, returns None otherwise
 fn edge_path(
-    reachable: &Vec<(usize, usize)>,
-    mut path_so_far: Vec<(usize, usize)>,
-    (x1, y1): (usize, usize),
-    (x2, y2): (usize, usize),
-) -> Option<Vec<(usize, usize)>> {
-    //Make sure (x1, y1) and (x2, y2) are both edging
+        reachable: &Vec<(usize, usize)>,
+        mut path_so_far: Vec<(usize, usize)>,
+        (x1, y1): (usize, usize),
+        (x2, y2): (usize, usize),
+        ) -> Option<Vec<(usize, usize)>> {
     if !is_edging((x1, y1), reachable) || !is_edging((x2, y2), reachable) {
         return None;
     }

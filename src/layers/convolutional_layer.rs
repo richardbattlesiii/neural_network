@@ -70,7 +70,11 @@ impl Layer for ConvolutionalLayer {
     }
 
     fn pass(&self, input_dynamic: &ArrayViewD<f32>) -> ArrayD<f32> {
+        let debug = false;
         let batch_size = input_dynamic.dim()[0];
+        if debug {
+            println!("Input shape: {:?}, converting to: ({}, {}, {}, {})", input_dynamic.shape(), batch_size, self.input_channels, self.image_size, self.image_size);
+        }
         let input = input_dynamic.to_shape((batch_size, self.input_channels, self.image_size, self.image_size)).unwrap();
         let mut output = Array4::zeros((batch_size, self.num_filters, self.image_size, self.image_size));
 

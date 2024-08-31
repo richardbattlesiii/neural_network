@@ -26,28 +26,30 @@ impl Layer for SoftmaxLayer {
     fn pass(&self, input_dynamic: &ArrayViewD<f32>) -> ArrayD<f32> {
         let batch_size = input_dynamic.dim()[0];
 
-        let input = input_dynamic.to_shape((batch_size, self.size)).unwrap();
+        let input = input_dynamic.to_shape((batch_size, self.size*self.channels)).unwrap();
         
-        let mut output = Array2::zeros((batch_size, self.size));
+        let mut output = Array2::zeros((batch_size, self.size*self.channels));
 
         for batch in 0..batch_size {
-            let mut max = f32::NEG_INFINITY;
-            for i in 0..self.size {
-                if input[[batch, i]] > max {
-                    max = input[[batch, i]];
+            for channel in 0..self.channels {
+                let mut max = f32::NEG_INFINITY;
+                for i in channel*self.size..(channel+1)*self.size {
+                    if input[[batch, i]] > max {
+                        max = input[[batch, i]];
+                    }
                 }
-            }
-
-            let mut sum = 0.0;
-            let mut exp_values = vec![0.0; self.size];
-            for i in 0..self.size {
-                let exp_value = (input[[batch, i]] - max).exp();
-                exp_values[i] = exp_value;
-                sum += exp_value;
-            }
-
-            for i in 0..self.size {
-                output[[batch, i]] = exp_values[i] / sum;
+    
+                let mut sum = 0.0;
+                let mut exp_values = vec![0.0; self.size*self.channels];
+                for i in channel*self.size..(channel+1)*self.size {
+                    let exp_value = (input[[batch, i]] - max).exp();
+                    exp_values[i] = exp_value;
+                    sum += exp_value;
+                }
+    
+                for i in channel*self.size..(channel+1)*self.size {
+                    output[[batch, i]] = exp_values[i] / sum;
+                }
             }
         }
 
@@ -61,10 +63,10 @@ impl Layer for SoftmaxLayer {
     }
     
     fn get_input_shape(&self) -> Vec<usize> {
-        vec![self.size]
+        vec![self.size*self.channels]
     }
     
     fn get_output_shape(&self) -> Vec<usize> {
-        vec![self.size]
+        vec![self.size*self.channels]
     }
 }

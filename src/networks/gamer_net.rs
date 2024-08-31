@@ -8,7 +8,7 @@ use ndarray::prelude::*;
 use crate::everhood::everhood::{self, ACTIONS_NUM};
 use crate::everhood::everhood::Environment;
 use crate::helpers::activation_functions::{RELU, SIGMOID};
-use crate::{convolutional_layer, prelude::*};
+use crate::prelude::*;
 use super::neural_net::NeuralNet;
 
 const GAMMA: f32 = 0.99;
@@ -40,7 +40,7 @@ pub fn make_gamer_net() {
                 LEARNING_RATE,
                 LAMBDA,
                 RELU,
-                convolutional_layer::CONVOLUTION_BASIC)));
+                CONVOLUTION_BASIC)));
     }
 
     //Reshaping layer

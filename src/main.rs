@@ -10,21 +10,11 @@ pub mod networks;
 pub mod everhood;
 pub mod prelude;
 
-use std::fs::File;
-use std::io::Write;
-use std::sync::{Arc, Mutex};
-use std::thread;
-use layers::{*, dense_layer::DenseLayer};
-use networks::neural_net::NeuralNet;
-// use networks::convolutional_net::ConvolutionalNet;
-use rand::random;
-use softmax_layer::SoftmaxLayer;
-use networks::gamer_net;
+use networks::neural_net::{calculate_bce_loss, NeuralNet};
+use prelude::*;
 use std::f32::consts::TAU;
-use std::time::Instant;
 use flow::flow_ai::{self, COLORS, PUZZLE_WIDTH};
 use ndarray::prelude::*;
-// use networks::dense_net::DenseNet;
 
 /**
     Used in a custom loss derivative function.
@@ -154,36 +144,111 @@ static MAX_EPOCHS:u32 = 10000000;
 
 ///How many puzzles to train on.
 ///Will panic if the total number of puzzles is above the number of lines in the input text file (see flow_ai).
-static NUM_TRAINING_PUZZLES:usize = 32768;
+static NUM_TRAINING_PUZZLES:usize = 4096;
 
 ///How many puzzles to test on.
 ///Will panic if the total number of puzzles is above the number of lines in the input text file (see flow_ai).
-static NUM_TESTING_PUZZLES:usize = 128;
+static NUM_TESTING_PUZZLES:usize = 512;
 
 ///How often to regenerate the puzzles.
-static REGENERATE_PUZZLES_INTERVAL:u32 = 1000;
+static REGENERATE_PUZZLES_INTERVAL:u32 = 10;
 
 ///How many times the genetic algorithm should print a progress update each generation.
 const NUM_PRINTS_PER_GENERATION:u32 = 10;
 
-//best testing loss: 1.321
+//best testing BCE loss: 1.321
 //best confidence in right answer: over 80%
 //both with 2000 epochs
 
 fn main() {
-    //make_generic_net();
-    //let start = Instant::now();
-    //generate_puzzles_3d(NUM_TRAINING_PUZZLES, NUM_THREADS);
-    //println!("Finished in {:8.6}s.", start.elapsed().as_secs_f32());
+    make_generic_net();
+    // let start = Instant::now();
+    // let max = 100000;
+    // for i in 0..max {
+    //     if i % (max / 100) == 0 {
+    //         println!("{}%", i*100/max);
+    //     }
+    //     flow_ai::generate_solution_with_edging();
+    // }
+    // println!("Came in {:8.6}s.", start.elapsed().as_secs_f32());
+
+    // let start = Instant::now();
+    // flow_ai::generate_puzzles_3d(1000, NUM_THREADS);
+    // println!("Finished regular in {:8.6}s.", start.elapsed().as_secs_f32());
     //make_regular_dense_net(ROSE_DECAY_LEARNING_RATE, (0.0, 0.0, 0.0));
     //xor();
     //make_convolutional_net();
     //genetic_algorithm();
-    gamer_net::make_gamer_net();
+    //gamer_net::make_gamer_net();
     // let image = Array2::from_shape_vec((3,3), vec![1.,2.,3.,4.,5.,6.,7.,8.,9.]).unwrap();
     // let kernel = Array2::from_shape_vec((3,3), vec![0.,0.,0.,0.,1.,1.,0.,0.,0.,]).unwrap();
     // println!("Image:\n{}\n\nKernel:\n{}\n", image, kernel,);
     // println!("Result:\n{}", convolutional_layer::im_2_col_convolve(&image.view(), &kernel.view()));
+}
+
+fn make_generic_net() {
+    let mut net = NeuralNet::new();
+
+    let channels = &[COLORS, 32, 64, 64];
+    let sizes = &[3, 3, 5];
+    for i in 0..sizes.len() {
+        net.add_layer(Box::from(ConvolutionalLayer::new(
+            PUZZLE_WIDTH,
+            channels[i],
+            channels[i+1],
+            sizes[i],
+            0.1,
+            0.1,
+            0,
+            CONVOLUTION_BASIC
+        )))
+    }
+
+    let conv_layer_output = vec![channels[channels.len()-1], PUZZLE_WIDTH, PUZZLE_WIDTH];
+    let dense_sizes = &[channels[channels.len()-1]*PUZZLE_WIDTH*PUZZLE_WIDTH, IO_SIZE/4, IO_SIZE];
+    net.add_layer(Box::from(ReshapingLayer::new(
+        conv_layer_output,
+        vec![dense_sizes[0]]
+    )));
+
+    for i in 0..dense_sizes.len()-1 {
+        net.add_layer(Box::from(DenseLayer::new(
+            dense_sizes[i],
+            dense_sizes[i+1],
+            0.1,
+            LAMBDA,
+            0
+        )));
+    }
+
+    net.add_layer(Box::from(SoftmaxLayer::new(PUZZLE_WIDTH*PUZZLE_WIDTH, COLORS)));
+
+
+
+    //START TRAINING
+
+
+    let (mut training_puzzles, mut training_solutions) = flow_ai::generate_puzzles_3d(NUM_TRAINING_PUZZLES, NUM_THREADS);
+    let (testing_puzzles, testing_solutions) = flow_ai::generate_puzzles_3d(NUM_TESTING_PUZZLES, NUM_THREADS);
+
+    println!("Starting training.");
+
+    for epoch in 1..MAX_EPOCHS {
+        if epoch % REGENERATE_PUZZLES_INTERVAL == 0 {
+            println!("regen");
+            (training_puzzles, training_solutions) = flow_ai::generate_puzzles_3d(NUM_TRAINING_PUZZLES, NUM_THREADS);
+        }
+
+        //println!("training puzzles are {:?}", training_puzzles.shape());
+        let training_loss = net.backpropagate(&training_puzzles.view().into_dyn(), &training_solutions.view().into_dyn());
+
+        if epoch % PRINTERVAL == 0 {
+            let testing_loss = calculate_bce_loss(&net.predict(&testing_puzzles.view().into_dyn()).view(), &testing_solutions.view().into_dyn());
+            println!("Epoch {} -- training loss: {:8.6}, testing loss: {:8.6}", epoch, training_loss, testing_loss);
+        }
+    }
+
+    println!("Finished.");
 }
 
 ///Make a DenseNet and have it solve XOR, as a minimum working example to compare with working
