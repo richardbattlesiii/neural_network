@@ -1,4 +1,4 @@
-If you're reading this, that probably means I specifically decided to show this to you. So, here's a little intro:
+If you're reading this, hi! Here's a little intro as to what this project is about:
 
 **WHAT?**
 
