@@ -133,7 +133,7 @@ pub fn make_gamer_net() {
                     (1.0 - LEARNING_RATE) * q_values[[0, action.0 as usize]] +
                     LEARNING_RATE * (reward + GAMMA * max_predicted_q);
 
-            net.backpropagate(&converted_state, &labels.view().into_dyn());
+            net.backpropagate(&converted_state, &labels.view().into_dyn(), 0);
         }
         if episode % (ENV_PRINTERVAL) == 0 {
             println!("{}", env);

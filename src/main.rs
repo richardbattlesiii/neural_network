@@ -144,7 +144,7 @@ static MAX_EPOCHS:u32 = 1000000000;
 
 ///How many puzzles to train on.
 ///Will panic if the total number of puzzles is above the number of lines in the input text file (see flow_ai).
-static NUM_TRAINING_PUZZLES:usize = 1024;
+static NUM_TRAINING_PUZZLES:usize = 512;
 
 ///How many puzzles to test on.
 ///Will panic if the total number of puzzles is above the number of lines in the input text file (see flow_ai).
@@ -161,7 +161,7 @@ const NUM_PRINTS_PER_GENERATION:u32 = 10;
 //both with 2000 epochs
 
 fn main() {
-    //make_generic_net();
+    make_generic_net();
     // let start = Instant::now();
     // let max = 100000;
     // for i in 0..max {
@@ -180,7 +180,7 @@ fn main() {
     //make_convolutional_net();
     //genetic_algorithm();
 
-    gamer_net::make_gamer_net();
+    //gamer_net::make_gamer_net();
     // let image = Array2::from_shape_vec((3,3), vec![1.,2.,3.,4.,5.,6.,7.,8.,9.]).unwrap();
     // let kernel = Array2::from_shape_vec((3,3), vec![0.,0.,0.,0.,1.,1.,0.,0.,0.,]).unwrap();
     // println!("Image:\n{}\n\nKernel:\n{}\n", image, kernel,);
@@ -190,7 +190,7 @@ fn main() {
 fn make_generic_net() {
     let mut net = NeuralNet::new();
 
-    let channels = &[COLORS, 32, 64];
+    let channels = &[COLORS, 16, 32];
     let sizes = &[3, 3];
     for i in 0..sizes.len() {
         net.add_layer(Box::from(ConvolutionalLayer::new(
@@ -206,7 +206,7 @@ fn make_generic_net() {
     }
 
     let conv_layer_output = vec![channels[channels.len()-1], PUZZLE_WIDTH, PUZZLE_WIDTH];
-    let dense_sizes = &[channels[channels.len()-1]*PUZZLE_WIDTH*PUZZLE_WIDTH, IO_SIZE/4, IO_SIZE/4, IO_SIZE/4, IO_SIZE/4, IO_SIZE];
+    let dense_sizes = &[channels[channels.len()-1]*PUZZLE_WIDTH*PUZZLE_WIDTH, IO_SIZE/4, IO_SIZE];
     net.add_layer(Box::from(ReshapingLayer::new(
         conv_layer_output,
         vec![dense_sizes[0]]
@@ -233,16 +233,16 @@ fn make_generic_net() {
     let (testing_puzzles, testing_solutions) = flow_ai::generate_puzzles_1d(NUM_TESTING_PUZZLES);
     println!("Starting training.");
 
-    for epoch in 1..MAX_EPOCHS {
+    for epoch in 1..MAX_EPOCHS+1 {
         if epoch % REGENERATE_PUZZLES_INTERVAL == 0 {
             (training_puzzles, training_solutions) = flow_ai::generate_puzzles_1d(NUM_TRAINING_PUZZLES);
         }
 
         //println!("training puzzles are {:?}", training_puzzles.shape());
-        let training_loss = net.backpropagate(&training_puzzles.view().into_dyn(), &training_solutions.view().into_dyn());
+        let training_loss = net.backpropagate(&training_puzzles.view().into_dyn(), &training_solutions.view().into_dyn(), COLORS);
 
         if epoch % PRINTERVAL == 0 {
-            let testing_loss = calculate_bce_loss(&net.predict(&testing_puzzles.view().into_dyn()).view(), &testing_solutions.view().into_dyn());
+            let testing_loss = calculate_bce_loss(&net.predict(&testing_puzzles.view().into_dyn()).view(), &testing_solutions.view().into_dyn(), COLORS);
             println!("Epoch {} -- training loss: {:8.6}, testing loss: {:8.6}", epoch, training_loss, testing_loss);
         }
     }

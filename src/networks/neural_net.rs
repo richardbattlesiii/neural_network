@@ -7,7 +7,7 @@ use crate::layers::layer::Layer;
 #[derive(Default)]
 pub struct NeuralNet {
     layers: Vec<Box<dyn Layer>>,
-    num_layers: usize
+    num_layers: usize,
 }
 
 impl NeuralNet {
@@ -60,13 +60,13 @@ impl NeuralNet {
         outputs[outputs.len() - 1].clone()
     }
 
-    pub fn backpropagate(&mut self, input: &ArrayViewD<f32>, labels: &ArrayViewD<f32>) -> f32 {
+    pub fn backpropagate(&mut self, input: &ArrayViewD<f32>, labels: &ArrayViewD<f32>, num_classes: usize) -> f32 {
         let outputs = self.forward_pass(input);
         let predictions = &outputs[outputs.len() - 1].view();
         if predictions.is_any_nan() {
             panic!("NaN(s) in backpropagation.");
         }
-        let loss = calculate_bce_loss(predictions, labels);
+        let loss = calculate_bce_loss(predictions, labels, num_classes);
         let mut error = predictions - labels;
         for layer_num in (0..self.num_layers).rev() {
             let current_input = &outputs[layer_num].view();
@@ -78,16 +78,17 @@ impl NeuralNet {
     }
 }
     
-pub fn calculate_bce_loss(predictions: &ArrayViewD<f32>, labels: &ArrayViewD<f32>) -> f32 {
+pub fn calculate_bce_loss(predictions: &ArrayViewD<f32>, labels: &ArrayViewD<f32>, num_classes: usize) -> f32 {
     let mut loss = 0.0;
     if predictions.shape() != labels.shape() {
         panic!("Mismatched shapes: {:?} predictions and {:?} labels.", predictions.shape(), labels.shape());
     }
-    for (index, pred) in predictions.indexed_iter() {
+    for (index, prediction) in predictions.indexed_iter() {
         let epsilon = 1e-7;
-        let pred = pred.clamp(epsilon, 1.0-epsilon);
+        let pred = prediction.clamp(epsilon, 1.0-epsilon);
         let label = labels[index].clamp(epsilon, 1.0-epsilon);
         loss -= label * pred.ln() + (1.0 - label) * (1.0 - pred).ln();
     }
+    loss /= num_classes as f32;
     loss / labels.dim()[0] as f32
 }
