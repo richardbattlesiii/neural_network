@@ -75,7 +75,8 @@ impl Layer for ConvolutionalLayer {
         if debug {
             println!("Input shape: {:?}, converting to: ({}, {}, {}, {})", input_dynamic.shape(), batch_size, self.input_channels, self.image_size, self.image_size);
         }
-        let input = input_dynamic.to_shape((batch_size, self.input_channels, self.image_size, self.image_size)).unwrap();
+        let input = input_dynamic.to_shape((batch_size, self.input_channels, self.image_size, self.image_size))
+                .expect(&format!("Tried to convert {:?} to {} x {} x {} x {}", input_dynamic.shape(), batch_size, self.input_channels, self.image_size, self.image_size));
         let mut output = Array4::zeros((batch_size, self.num_filters, self.image_size, self.image_size));
 
         for sample in 0..batch_size {

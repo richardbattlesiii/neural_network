@@ -1,6 +1,6 @@
 use std::fmt::Display;
-use ndarray::{Array1, Array2, Array3};
-use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
+use ndarray::Array3;
+use rand::{rngs::StdRng, Rng, SeedableRng};
 
 ///The odds that a fire starts at each position (at time 0)
 pub const FIRE_STARTING_CHANCE: f64 = 0.1;
@@ -141,8 +141,8 @@ impl Environment {
 }
 
 fn fire_chance(time: u128) -> f64 {
-    //FIRE_STARTING_CHANCE
-    1. - ((1. - FIRE_STARTING_CHANCE) * (-FIRE_EXP_PARAMETER as f64 * time as f64).exp())
+    FIRE_STARTING_CHANCE
+    //1. - ((1. - FIRE_STARTING_CHANCE) * (-FIRE_EXP_PARAMETER as f64 * time as f64).exp())
 }
 
 impl Display for Environment {

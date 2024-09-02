@@ -1,3 +1,4 @@
+use num::integer::Roots;
 use rand::{thread_rng, Rng};
 use scrap::{Capturer, Display};
 use std::io::ErrorKind::WouldBlock;
@@ -11,8 +12,8 @@ use crate::helpers::activation_functions::{RELU, SIGMOID};
 use crate::prelude::*;
 use super::neural_net::NeuralNet;
 
-const GAMMA: f32 = 0.99;
-const LEARNING_RATE: f32 = 0.1;
+const GAMMA: f32 = 0.9;
+const LEARNING_RATE: f32 = 0.002;
 const LAMBDA: f32 = 0.1;
 
 const MAX_EPISODES: i32 = 100001;
@@ -28,9 +29,9 @@ pub fn make_gamer_net() {
 
     //Convolutional layers
     let size = everhood::NUM_STATE_CHANNELS*HEIGHT*WIDTH;
-    let num_channels = &[everhood::NUM_STATE_CHANNELS, 8, 16];
+    let num_channels = &[everhood::NUM_STATE_CHANNELS, 4, 8];
     let num_conv_layers = 2;
-    let convolutional_layer_sizes = &[3, 3, 5];
+    let convolutional_layer_sizes = &[3, 3];
     for i in 0..num_conv_layers {
         net.add_layer(Box::from(ConvolutionalLayer::new(
                 HEIGHT,
@@ -80,7 +81,7 @@ pub fn make_gamer_net() {
     net.initialize();
 
     //Start the actual training
-    let mut epsilon = 0.2;
+    let mut epsilon = 0.5;
     let mut best_time = 0;
     let start = Instant::now();
     while episode < MAX_EPISODES {
@@ -107,9 +108,9 @@ pub fn make_gamer_net() {
             let mut reward;
             let max_predicted_q;
             if env.is_alive() {
-                reward = 1.;
+                reward = 0.1 * (env.time() as f32).sqrt();
                 if env.is_player_on_fire() {
-                    reward = -0.5;
+                    reward = -1.;
                 }
                 // reward = (env.time() as f32).sqrt()/2.;
                 // if env.is_player_on_fire() {
@@ -117,26 +118,32 @@ pub fn make_gamer_net() {
                 // }
                 if env.time() > best_time {
                     best_time = env.time();
-                    reward += 1.;
+                    reward += 2.;
                 }
                 max_predicted_q = max_predicted_next_q(&net, &env);
             }
             else {
-                reward = -2.;
+                reward = -3.;
                 //reward = (env.time() as f32).cbrt()/2. -(episode as f32 + 1.).ln();
                 max_predicted_q = 0.;
             }
             //println!("Reward at time {} is {}.", env.time(), reward);
-            let future_value = reward + GAMMA * max_predicted_q;
             let mut labels = q_values.clone();
             labels[[0, action.0 as usize]] =
-            (1.0 - LEARNING_RATE) * q_values[[0, action.0 as usize]] +
-            LEARNING_RATE * (reward + GAMMA * max_predicted_q);
+                    (1.0 - LEARNING_RATE) * q_values[[0, action.0 as usize]] +
+                    LEARNING_RATE * (reward + GAMMA * max_predicted_q);
 
             net.backpropagate(&converted_state, &labels.view().into_dyn());
         }
         if episode % (ENV_PRINTERVAL) == 0 {
             println!("{}", env);
+            
+            let current_state = env.get_state().into_dyn();
+            let converted_state = current_state.view().insert_axis(Axis(0));
+            let q_values = net.predict(&converted_state);
+
+            println!("Q values:\n{}\n", q_values);
+            
         }
         if episode % PRINTERVAL == 0 {
             println!("Lasted for {} steps on episode {}.", env.time(), episode);

@@ -63,6 +63,9 @@ impl NeuralNet {
     pub fn backpropagate(&mut self, input: &ArrayViewD<f32>, labels: &ArrayViewD<f32>) -> f32 {
         let outputs = self.forward_pass(input);
         let predictions = &outputs[outputs.len() - 1].view();
+        if predictions.is_any_nan() {
+            panic!("NaN(s) in backpropagation.");
+        }
         let loss = calculate_bce_loss(predictions, labels);
         let mut error = predictions - labels;
         for layer_num in (0..self.num_layers).rev() {
@@ -82,6 +85,7 @@ pub fn calculate_bce_loss(predictions: &ArrayViewD<f32>, labels: &ArrayViewD<f32
     }
     for (index, pred) in predictions.indexed_iter() {
         let epsilon = 1e-7;
+        let pred = pred.clamp(epsilon, 1.0-epsilon);
         let label = labels[index].clamp(epsilon, 1.0-epsilon);
         loss -= label * pred.ln() + (1.0 - label) * (1.0 - pred).ln();
     }

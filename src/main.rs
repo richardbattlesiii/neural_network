@@ -140,15 +140,15 @@ const PRINTERVAL:u32 = 1;
 
 ///Max number of epochs.
 ///Note that in the genetic algorithm, this is per generation.
-static MAX_EPOCHS:u32 = 10000000;
+static MAX_EPOCHS:u32 = 1000000000;
 
 ///How many puzzles to train on.
 ///Will panic if the total number of puzzles is above the number of lines in the input text file (see flow_ai).
-static NUM_TRAINING_PUZZLES:usize = 4096;
+static NUM_TRAINING_PUZZLES:usize = 1024;
 
 ///How many puzzles to test on.
 ///Will panic if the total number of puzzles is above the number of lines in the input text file (see flow_ai).
-static NUM_TESTING_PUZZLES:usize = 512;
+static NUM_TESTING_PUZZLES:usize = 256;
 
 ///How often to regenerate the puzzles.
 static REGENERATE_PUZZLES_INTERVAL:u32 = 10;
@@ -161,7 +161,7 @@ const NUM_PRINTS_PER_GENERATION:u32 = 10;
 //both with 2000 epochs
 
 fn main() {
-    make_generic_net();
+    //make_generic_net();
     // let start = Instant::now();
     // let max = 100000;
     // for i in 0..max {
@@ -179,7 +179,8 @@ fn main() {
     //xor();
     //make_convolutional_net();
     //genetic_algorithm();
-    //gamer_net::make_gamer_net();
+
+    gamer_net::make_gamer_net();
     // let image = Array2::from_shape_vec((3,3), vec![1.,2.,3.,4.,5.,6.,7.,8.,9.]).unwrap();
     // let kernel = Array2::from_shape_vec((3,3), vec![0.,0.,0.,0.,1.,1.,0.,0.,0.,]).unwrap();
     // println!("Image:\n{}\n\nKernel:\n{}\n", image, kernel,);
@@ -189,8 +190,8 @@ fn main() {
 fn make_generic_net() {
     let mut net = NeuralNet::new();
 
-    let channels = &[COLORS, 32, 64, 64];
-    let sizes = &[3, 3, 5];
+    let channels = &[COLORS, 32, 64];
+    let sizes = &[3, 3];
     for i in 0..sizes.len() {
         net.add_layer(Box::from(ConvolutionalLayer::new(
             PUZZLE_WIDTH,
@@ -198,14 +199,14 @@ fn make_generic_net() {
             channels[i+1],
             sizes[i],
             0.1,
-            0.1,
-            0,
+            LAMBDA,
+            RELU,
             CONVOLUTION_BASIC
         )))
     }
 
     let conv_layer_output = vec![channels[channels.len()-1], PUZZLE_WIDTH, PUZZLE_WIDTH];
-    let dense_sizes = &[channels[channels.len()-1]*PUZZLE_WIDTH*PUZZLE_WIDTH, IO_SIZE/4, IO_SIZE];
+    let dense_sizes = &[channels[channels.len()-1]*PUZZLE_WIDTH*PUZZLE_WIDTH, IO_SIZE/4, IO_SIZE/4, IO_SIZE/4, IO_SIZE/4, IO_SIZE];
     net.add_layer(Box::from(ReshapingLayer::new(
         conv_layer_output,
         vec![dense_sizes[0]]
@@ -217,7 +218,7 @@ fn make_generic_net() {
             dense_sizes[i+1],
             0.1,
             LAMBDA,
-            0
+            RELU
         )));
     }
 
@@ -228,15 +229,13 @@ fn make_generic_net() {
     //START TRAINING
 
 
-    let (mut training_puzzles, mut training_solutions) = flow_ai::generate_puzzles_3d(NUM_TRAINING_PUZZLES, NUM_THREADS);
-    let (testing_puzzles, testing_solutions) = flow_ai::generate_puzzles_3d(NUM_TESTING_PUZZLES, NUM_THREADS);
-
+    let (mut training_puzzles, mut training_solutions) = flow_ai::generate_puzzles_1d(NUM_TRAINING_PUZZLES);
+    let (testing_puzzles, testing_solutions) = flow_ai::generate_puzzles_1d(NUM_TESTING_PUZZLES);
     println!("Starting training.");
 
     for epoch in 1..MAX_EPOCHS {
         if epoch % REGENERATE_PUZZLES_INTERVAL == 0 {
-            println!("regen");
-            (training_puzzles, training_solutions) = flow_ai::generate_puzzles_3d(NUM_TRAINING_PUZZLES, NUM_THREADS);
+            (training_puzzles, training_solutions) = flow_ai::generate_puzzles_1d(NUM_TRAINING_PUZZLES);
         }
 
         //println!("training puzzles are {:?}", training_puzzles.shape());
