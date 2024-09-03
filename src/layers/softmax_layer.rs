@@ -31,24 +31,27 @@ impl Layer for SoftmaxLayer {
         let mut output = Array2::zeros((batch_size, self.size*self.channels));
 
         for batch in 0..batch_size {
-            for channel in 0..self.channels {
+            for i in 0..self.size {
                 let mut max = f32::NEG_INFINITY;
-                for i in channel*self.size..(channel+1)*self.size {
-                    if input[[batch, i]] > max {
-                        max = input[[batch, i]];
+                for channel in 0..self.channels {
+                    let idx = channel * self.size + i;
+                    if input[[batch, idx]] > max {
+                        max = input[[batch, idx]];
                     }
                 }
-    
+        
                 let mut sum = 0.0;
-                let mut exp_values = vec![0.0; self.size*self.channels];
-                for i in channel*self.size..(channel+1)*self.size {
-                    let exp_value = (input[[batch, i]] - max).exp();
-                    exp_values[i] = exp_value;
+                let mut exp_values = vec![0.0; self.channels];
+                for channel in 0..self.channels {
+                    let idx = channel * self.size + i;
+                    let exp_value = (input[[batch, idx]] - max).exp();
+                    exp_values[channel] = exp_value;
                     sum += exp_value;
                 }
-    
-                for i in channel*self.size..(channel+1)*self.size {
-                    output[[batch, i]] = exp_values[i] / sum;
+        
+                for channel in 0..self.channels {
+                    let idx = channel * self.size + i;
+                    output[[batch, idx]] = exp_values[channel] / sum;
                 }
             }
         }
