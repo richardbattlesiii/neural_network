@@ -38,15 +38,21 @@ impl NeuralNet {
     }
 
     pub fn forward_pass(&self, input: &ArrayViewD<f32>) -> Vec<ArrayD<f32>> {
+        let debug = false;
         let mut outputs = vec![];
         outputs.push(input.to_owned());
-        //println!("Starting with:\n{}", input);
+        if debug {
+            println!("Passing layer 0.");
+        }
         let output = self.layers[0].pass(input);
         //println!("Output was: {:?}", output.shape());
         outputs.push(output);
     
 
         for layer_num in 1..self.num_layers {
+            if debug {
+                println!("Passing layer {layer_num}.");
+            }
             let previous_output = &outputs[layer_num];
             let output = self.layers[layer_num].pass(&previous_output.view());
             //println!("Output was:\n{}", output);
@@ -61,6 +67,7 @@ impl NeuralNet {
     }
 
     pub fn backpropagate(&mut self, input: &ArrayViewD<f32>, labels: &ArrayViewD<f32>, num_classes: usize) -> f32 {
+        let debug = false;
         let outputs = self.forward_pass(input);
         let predictions = &outputs[outputs.len() - 1].view();
         if predictions.is_any_nan() {
@@ -69,6 +76,9 @@ impl NeuralNet {
         let loss = calculate_bce_loss(predictions, labels, num_classes);
         let mut error = predictions - labels;
         for layer_num in (0..self.num_layers).rev() {
+            if debug {
+                println!("Backpropagating layer {layer_num}");
+            }
             let current_input = &outputs[layer_num].view();
             let current_output = &outputs[layer_num+1].view();
             error = self.layers[layer_num].backpropagate(current_input, current_output, &error.view())

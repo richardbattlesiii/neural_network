@@ -8,7 +8,7 @@ use rand::{random, Rng};
 use rand::seq::SliceRandom;
 
 
-pub const PUZZLE_WIDTH: usize = 4;
+pub const PUZZLE_WIDTH: usize = 6;
 pub const COLORS: usize = PUZZLE_WIDTH*PUZZLE_WIDTH/2+2;
 pub const KEY: &str = "-0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ`~!@#$%^&*()=+;':\"[]\\{}|";
 pub fn convert() -> io::Result<(Array2<f32>, Array2<f32>)> {
@@ -76,7 +76,7 @@ pub fn convert() -> io::Result<(Array2<f32>, Array2<f32>)> {
 }
 
 ///Generates one-hot encoded puzzles, where each puzzle is 1d.
-pub fn generate_puzzles_1d(num_puzzles: usize) -> (Array2<f32>, Array2<f32>) {
+pub fn generate_puzzles_1d(num_puzzles: usize, use_edging: bool) -> (Array2<f32>, Array2<f32>) {
     let print_progress = false;
     if print_progress {
         println!("Generating puzzles...");
@@ -89,11 +89,11 @@ pub fn generate_puzzles_1d(num_puzzles: usize) -> (Array2<f32>, Array2<f32>) {
         }
 
         let solution_2d =
-                if PUZZLE_WIDTH < 8 {
-                    generate_solution()
+                if use_edging {
+                    generate_solution_with_edging()
                 }
                 else {
-                    generate_solution_with_edging()
+                    generate_solution()
                 };
         
         let puzzle_2d = remove_solution(&solution_2d);
@@ -110,8 +110,8 @@ pub fn generate_puzzles_1d(num_puzzles: usize) -> (Array2<f32>, Array2<f32>) {
 }
 
 ///Generates 3d puzzles where the first dimensions is a channel for each possible color.
-pub fn generate_puzzles_3d(num_puzzles: usize, num_threads: u8) -> (Array4<f32>, Array2<f32>) {
-    let print_progress = true;
+pub fn generate_puzzles_3d(num_puzzles: usize, num_threads: u8, use_edging: bool) -> (Array4<f32>, Array2<f32>) {
+    let print_progress = false;
     if print_progress {
         println!("Generating puzzles...");
     }
@@ -134,11 +134,11 @@ pub fn generate_puzzles_3d(num_puzzles: usize, num_threads: u8) -> (Array4<f32>,
             }
 
             let solution_2d =
-                    if PUZZLE_WIDTH < 8 {
-                        generate_solution()
+                    if use_edging {
+                        generate_solution_with_edging()
                     }
                     else {
-                        generate_solution_with_edging()
+                        generate_solution()
                     };
             let puzzle_2d = remove_solution(&solution_2d);
     

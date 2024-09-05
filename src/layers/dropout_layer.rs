@@ -53,7 +53,7 @@ impl Layer for DropoutLayer {
                     DROPOUT_MULTIPLY => {
                         let random = rng.gen::<f32>();
                         output[&index] = input[&index] *
-                        (2. * self.dropout_magnitude * random + 1. - self.dropout_magnitude)
+                                (2. * self.dropout_magnitude * random + 1. - self.dropout_magnitude)
                     },
                     DROPOUT_ZERO => {
                         output[&index] = 0.;

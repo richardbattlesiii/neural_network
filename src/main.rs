@@ -10,11 +10,12 @@ pub mod networks;
 pub mod everhood;
 pub mod prelude;
 
+use mnist::Mnist;
 use networks::neural_net::{calculate_bce_loss, NeuralNet};
 use prelude::*;
-use std::f32::consts::TAU;
+use std::{f32::consts::TAU, time::Instant};
 use flow::flow_ai::{self, COLORS, PUZZLE_WIDTH};
-use ndarray::prelude::*;
+use ndarray::{prelude::*, Slice};
 
 /**
     Used in a custom loss derivative function.
@@ -136,7 +137,7 @@ static EPOCH_INCREASE:u32 = 1;
     Printing interval -- number of epochs between status updates.
     Not used in genetic algorithm.
 */
-const PRINTERVAL:u32 = 1;
+const PRINTERVAL:u32 = 10;
 
 ///Max number of epochs.
 ///Note that in the genetic algorithm, this is per generation.
@@ -144,24 +145,24 @@ static MAX_EPOCHS:u32 = 1000000000;
 
 ///How many puzzles to train on.
 ///Will panic if the total number of puzzles is above the number of lines in the input text file (see flow_ai).
-static NUM_TRAINING_PUZZLES:usize = 512;
+static NUM_TRAINING_PUZZLES:usize = 64;
 
 ///How many puzzles to test on.
 ///Will panic if the total number of puzzles is above the number of lines in the input text file (see flow_ai).
 static NUM_TESTING_PUZZLES:usize = 256;
 
 ///How often to regenerate the puzzles.
-static REGENERATE_PUZZLES_INTERVAL:u32 = 10;
+static REGENERATE_PUZZLES_INTERVAL:u32 = 1;
 
 ///How many times the genetic algorithm should print a progress update each generation.
 const NUM_PRINTS_PER_GENERATION:u32 = 10;
 
 //best testing BCE loss: 1.321
 //best confidence in right answer: over 80%
-//both with 2000 epochs
+//both with 2000 epochs, 4x4 grid I think
 
 fn main() {
-    make_generic_net();
+    test_on_mnist();
     // let start = Instant::now();
     // let max = 100000;
     // for i in 0..max {
@@ -187,10 +188,80 @@ fn main() {
     // println!("Result:\n{}", convolutional_layer::im_2_col_convolve(&image.view(), &kernel.view()));
 }
 
+const TRAINING_SIZE: usize = 60_000;
+const TESTING_SIZE: usize = 10_000;
+fn test_on_mnist() {
+    let Mnist {
+        trn_img, trn_lbl, tst_img, tst_lbl, ..
+    } = mnist::MnistBuilder::new()
+            .label_format_digit()
+            .training_set_length(TRAINING_SIZE as u32)
+            .test_set_length(TESTING_SIZE as u32)
+            .finalize();
+
+    let train_images = Array4::from_shape_vec(
+            (TRAINING_SIZE, 1, 28, 28),
+            trn_img.into_iter().map(|x| x as f32 / 255.0).collect(),
+    ).unwrap();
+
+    let test_images = Array4::from_shape_vec(
+            (TESTING_SIZE, 1, 28, 28),
+            tst_img.into_iter().map(|x| x as f32 / 255.0).collect(),
+    ).unwrap();
+
+    let train_labels = one_hot_encode(trn_lbl, 10);
+    let test_labels = one_hot_encode(tst_lbl, 10);
+
+    let mut net = NeuralNet::new();
+
+    // net.add_layer(Box::from(ConvolutionalLayer::new(
+    //     28,
+    //     1,
+    //     32,
+    //     3,
+    //     0.1,
+    //     LAMBDA,
+    //     RELU,
+    //     CONVOLUTION_BASIC
+    // )));
+
+    net.add_layer(Box::from(ReshapingLayer::new(vec![1, 28, 28], vec![28*28])));
+
+    net.add_layer(Box::from(DenseLayer::new(
+        28*28,
+        10,
+        0.1,
+        LAMBDA,
+        RELU,
+    )));
+
+    net.add_layer(Box::from(SoftmaxLayer::new(1, 10)));
+
+    for epoch in 0..100 {
+        println!("Training error: {}", net.backpropagate(&train_images.view().into_dyn(), &train_labels.view().into_dyn(), 10));
+    }
+}
+
+fn one_hot_encode(labels: Vec<u8>, num_classes: usize) -> Array2<f32> {
+    let num_samples = labels.len();
+    let mut one_hot = Array2::<f32>::zeros((num_samples, num_classes));
+    for (i, &label) in labels.iter().enumerate() {
+        one_hot[(i, label as usize)] = 1.0;
+    }
+    one_hot
+}
+
 fn make_generic_net() {
     let mut net = NeuralNet::new();
 
-    let channels = &[COLORS, 16, 32];
+    net.add_layer(Box::from(DropoutLayer::new(
+        vec![COLORS, PUZZLE_WIDTH, PUZZLE_WIDTH],
+        0.05,
+        0.1,
+        DROPOUT_MULTIPLY,
+    )));
+
+    let channels = &[COLORS, 32, 64];
     let sizes = &[3, 3];
     for i in 0..sizes.len() {
         net.add_layer(Box::from(ConvolutionalLayer::new(
@@ -206,7 +277,7 @@ fn make_generic_net() {
     }
 
     let conv_layer_output = vec![channels[channels.len()-1], PUZZLE_WIDTH, PUZZLE_WIDTH];
-    let dense_sizes = &[channels[channels.len()-1]*PUZZLE_WIDTH*PUZZLE_WIDTH, IO_SIZE/4, IO_SIZE];
+    let dense_sizes = &[channels[channels.len()-1]*PUZZLE_WIDTH*PUZZLE_WIDTH, IO_SIZE/2, IO_SIZE/2, IO_SIZE/2, IO_SIZE];
     net.add_layer(Box::from(ReshapingLayer::new(
         conv_layer_output,
         vec![dense_sizes[0]]
@@ -229,13 +300,13 @@ fn make_generic_net() {
     //START TRAINING
 
 
-    let (mut training_puzzles, mut training_solutions) = flow_ai::generate_puzzles_1d(NUM_TRAINING_PUZZLES);
-    let (testing_puzzles, testing_solutions) = flow_ai::generate_puzzles_1d(NUM_TESTING_PUZZLES);
+    let (mut training_puzzles, mut training_solutions) = flow_ai::generate_puzzles_3d(NUM_TRAINING_PUZZLES, NUM_THREADS, false);
+    let (testing_puzzles, testing_solutions) = flow_ai::generate_puzzles_3d(NUM_TESTING_PUZZLES, NUM_THREADS, false);
     println!("Starting training.");
-
+    let start = Instant::now();
     for epoch in 1..MAX_EPOCHS+1 {
         if epoch % REGENERATE_PUZZLES_INTERVAL == 0 {
-            (training_puzzles, training_solutions) = flow_ai::generate_puzzles_1d(NUM_TRAINING_PUZZLES);
+            (training_puzzles, training_solutions) = flow_ai::generate_puzzles_3d(NUM_TRAINING_PUZZLES, NUM_THREADS, false);
         }
 
         //println!("training puzzles are {:?}", training_puzzles.shape());
@@ -244,33 +315,15 @@ fn make_generic_net() {
         if epoch % PRINTERVAL == 0 {
             let testing_loss = calculate_bce_loss(&net.predict(&testing_puzzles.view().into_dyn()).view(), &testing_solutions.view().into_dyn(), COLORS);
             println!("Epoch {} -- training loss: {:8.6}, testing loss: {:8.6}", epoch, training_loss, testing_loss);
+            
+            if epoch % (PRINTERVAL * 10) == 0 {
+                test_net_specific(&net, &testing_puzzles.view().into_dyn(), &testing_solutions.view());
+            }
         }
     }
 
-    println!("Finished.");
+    println!("Finished in {}ms.", start.elapsed().as_millis());
 }
-
-///Make a DenseNet and have it solve XOR, as a minimum working example to compare with working
-///code.
-// fn xor() {
-//     let inputs:Array2<f32> = Array2::from_shape_vec((4,2), vec![0.0,0.0, 0.0,1.0, 1.0,0.0, 1.0,1.0]).unwrap();
-//     let labels:Array2<f32> = Array2::from_shape_vec((4,1), vec![0.0, 1.0, 1.0, 0.0]).unwrap();
-//     let layer_sizes = vec![2, 18, 1];
-//     let activation_functions = vec![0, 1];
-//     let mut dn = DenseNet::new_with_vectors(&layer_sizes, &activation_functions);
-//     dn.initialize();
-//     dn.set_learning_rate(0.3);
-//     let mut training_loss = -1.0;
-//     for i in 0..MAX_EPOCHS {
-//         training_loss = dn.backpropagate(&inputs.view(), &labels.view());
-//         // for j in 0..4 {
-//         //     training_loss = dn.backpropagate(&inputs.slice(s![j..j+1, 0..2]).to_owned(), &labels.slice(s![j..j+1, 0..2]).to_owned());
-//         // }
-//         //println!("Training loss: {}", training_loss);
-//     }
-//     println!("{}", training_loss);
-//     println!("{}", dn.predict(&inputs.view()));
-// }
 
 
 
@@ -361,49 +414,6 @@ fn make_generic_net() {
 //     // //Print how long it took.
 //     // let duration = start.elapsed().as_millis();
 //     // println!("Finished in {}ms.", duration);
-// }
-
-// //Like above, but with convolutional layers.
-// fn make_convolutional_net() {
-//     let (mut training_puzzles, mut training_solutions) = flow_ai::generate_puzzles_3d(NUM_TRAINING_PUZZLES, NUM_THREADS);
-//     let (testing_puzzles, testing_solutions) = flow_ai::generate_puzzles_3d(NUM_TESTING_PUZZLES, NUM_THREADS);
-
-//     let mut cn = ConvolutionalNet::new(
-//         PUZZLE_WIDTH, //Image size
-//         COLORS, //Input channels
-//         &[32, 64, 128], //Num filters
-//         &[3, 5, 5], //Filter sizes
-//         &[128*PUZZLE_WIDTH*PUZZLE_WIDTH, COLORS*PUZZLE_WIDTH*PUZZLE_WIDTH], //Dense layer sizes
-//         &[0, 0, 0, 0, 0, 0, 0, 0], //Activation functions
-//         convolutional_layer::CONVOLUTION_BASIC); //Convolution method
-//     cn.initialize();
-//     cn.set_learning_rate(0.1);
-//     let start = Instant::now();
-//     for epoch in 0..MAX_EPOCHS {
-//         if epoch % REGENERATE_PUZZLES_INTERVAL == 0 && epoch != 0 {
-//             (training_puzzles, training_solutions) = flow_ai::generate_puzzles_3d(NUM_TRAINING_PUZZLES, NUM_THREADS);
-//             //(testing_puzzles, testing_solutions) = flow_ai::generate_puzzles_3d(NUM_TESTING_PUZZLES, NUM_THREADS);
-//         }
-//         let training_loss = cn.back_prop(&training_puzzles.view(), &training_solutions.view());
-//         if epoch % PRINTERVAL == 0 {
-//             let prediction = cn.predict(&testing_puzzles.view());
-//             let testing_loss = ConvolutionalNet::calculate_bce_loss(&prediction.view(), &testing_solutions.view());
-//             println!("Epoch: {},\tTraining Loss: {:6.4}, \tTesting Loss: {:6.4}", epoch, training_loss, testing_loss);
-//             if f32::is_nan(testing_loss) {
-//                 println!("NAN MOMENT");
-//                 break;
-//             }
-//             if epoch % (PRINTERVAL*10) == 0 && epoch != 0 {
-//                 let puzzle_num = (rand::random::<f32>() * prediction.nrows() as f32) as usize;
-//                 let predicted_grid = predict_from_one_hot(&prediction.slice(s![puzzle_num, ..]));
-//                 let solution_grid = predict_from_one_hot(&testing_solutions.slice(s![puzzle_num, ..]));
-//                 println!("Solution:\n{}\n\nPrediction:\n{}\n", solution_grid, predicted_grid);
-//                 print_confidence_in_right_answer(&prediction.view(), &testing_solutions.view());
-//             }
-//         }
-//     }
-//     let duration = start.elapsed().as_millis();
-//     println!("Done in {}ms.", duration);
 // }
 
 // //Uses multiple threads, each training the same neural net but with noise added
@@ -554,24 +564,25 @@ fn make_generic_net() {
 //     dn.calculate_bce_loss(&dn.predict(&testing_puzzles.view()).view(), &testing_solutions.view())
 // }
 
-// ///Get a random test puzzle and make a prediction on it.
-// fn test_net_specific(dn: &DenseNet, puzzles: &Array2<f32>, solutions: &Array2<f32>) {
-//     let randy:f32 = random();
-//     let puzzle_num = (randy*(puzzles.nrows() as f32)) as usize;
-//     let puzzle = puzzles.slice(s![puzzle_num..puzzle_num+1, 0..IO_SIZE]).to_owned();
-//     let solution = solutions.slice(s![puzzle_num..puzzle_num+1, 0..IO_SIZE]).to_owned();
-//     let prediction = dn.predict(&puzzle.view());
-//     // println!("{}", solution);
-//     // println!("{}", prediction);
-//     let converted_solution = predict_from_one_hot(&solution.slice(s![0, ..]));
-//     let converted_prediction = predict_from_one_hot(&prediction.slice(s![0, ..]));
-//     //Print out the solution vs the prediction of the puzzle,
-//     //to see how good (or more likely bad) the net really is at Flow Free.
-//     println!("{}", converted_solution);
-//     println!("{}", converted_prediction);
-//     print_confidence_in_right_answer(&prediction.view(), &solution.view());
-// }
+///Get a random test puzzle and make a prediction on it.
+fn test_net_specific(net: &NeuralNet, puzzles: &ArrayViewD<f32>, solutions: &ArrayView2<f32>) {
+    let randy:f32 = rand::random();
+    let puzzle_num = (randy*(puzzles.dim()[0] as f32)) as usize;
+    let puzzle = puzzles.slice_axis(Axis(0), Slice::new(puzzle_num as isize, Some(puzzle_num as isize + 1), 1)).to_owned();
+    let solution = solutions.slice_axis(Axis(0), Slice::new(puzzle_num as isize, Some(puzzle_num as isize + 1), 1)).to_owned();
+    let prediction = net.predict(&puzzle.view().into_dyn());
+    // println!("{}", solution);
+    // println!("{}", prediction);
+    let converted_solution = predict_from_one_hot(&solution.slice(s![0, ..]));
+    let converted_prediction = predict_from_one_hot(&prediction.slice(s![0, ..]));
+    //Print out the solution vs the prediction of the puzzle,
+    //to see how good (or more likely bad) the net really is at Flow Free.
+    println!("{}", converted_solution);
+    println!("{}", converted_prediction);
+    print_confidence_in_right_answer(&prediction.to_shape(solution.raw_dim()).unwrap().view(), &solution.view());
+}
 
+///Converts one-hot encoding into a grid of predictions
 fn predict_from_one_hot(prediction: &ArrayView1<f32>) -> Array2<f32> {
     let mut output = Array2::zeros((PUZZLE_WIDTH, PUZZLE_WIDTH));
     for row in 0..output.nrows() {
@@ -619,14 +630,15 @@ fn interpolate_by_halves(iterations: u32) -> f32 {
     0.0
 }
 
+///Prints the average confidence across all correct colors.
 fn print_confidence_in_right_answer(prediction: &ArrayView2<f32>, solution: &ArrayView2<f32>) {
     let debug = false;
     //Stores the confidence in the right answers
     let mut confidence = 0.;
     //Loop over the puzzles
-    for row in 0..prediction.nrows() {
+    for row in 0..prediction.dim().0 {
         //Loop over the tiles in the puzzle, checking if each one is correct
-        for col in 0..prediction.ncols() {
+        for col in 0..prediction.dim().1 {
             if solution[[row, col]] == 1f32 {
                 confidence += prediction[[row, col]];
                 if debug {
@@ -642,18 +654,3 @@ fn print_confidence_in_right_answer(prediction: &ArrayView2<f32>, solution: &Arr
     confidence /= (prediction.nrows()*PUZZLE_WIDTH*PUZZLE_WIDTH) as f32;
     println!("Average correct confidence: {:6.5}, That's {:4.2} times better than average!", confidence, confidence*COLORS as f32);
 }
-
-// fn dropout(input: &mut Array2<f32>) {
-//     println!("Starting dropout.");
-//     let mut rng = rand::thread_rng();
-//     for row in 0..input.nrows() {
-//         for col in 0..input.ncols() {
-//             if input[[row, col]] == 1.0 {
-//                 let p = COLORS as f32 /(input.ncols() as f32);
-//                 if rng.gen::<f32>() <= p {
-//                     input[[row, col]] = 0.0;
-//                 }
-//             }
-//         }
-//     }
-// }
