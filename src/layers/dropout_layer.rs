@@ -39,7 +39,7 @@ impl Layer for DropoutLayer {
     ///Does nothing.
     fn set_learning_rate(&mut self, rate: f32) {}
 
-    fn pass(&self, input: &ndarray::ArrayViewD<f32>) -> ndarray::ArrayD<f32> {
+    fn pass(&self, input: &ndarray::ArrayD<f32>) -> ndarray::ArrayD<f32> {
         let mut output: ArrayD<f32> = ArrayD::zeros(input.raw_dim());
         let mut rng = rand::thread_rng();
         for (index, value) in input.indexed_iter() {
@@ -68,9 +68,9 @@ impl Layer for DropoutLayer {
         output
     }
 
-    fn backpropagate(&mut self, layer_input: &ndarray::ArrayViewD<f32>,
-            layer_output: &ndarray::ArrayViewD<f32>,
-            dl_da: &ndarray::ArrayViewD<f32>) -> ndarray::ArrayD<f32> {
+    fn backpropagate(&mut self, layer_input: &ndarray::ArrayD<f32>,
+            layer_output: &ndarray::ArrayD<f32>,
+            dl_da: &ndarray::ArrayD<f32>) -> ndarray::ArrayD<f32> {
         dl_da.to_owned()
     }
 

@@ -40,7 +40,7 @@ impl Layer for PoolingLayer {
     ///Does nothing.
     fn set_learning_rate(&mut self, rate: f32) {}
 
-    fn pass(&self, input_dynamic: &ArrayViewD<f32>) -> ArrayD<f32> {
+    fn pass(&self, input_dynamic: &ArrayD<f32>) -> ArrayD<f32> {
         let input_rows = self.input_dimensions[0];
         let input_cols = self.input_dimensions[1];
 
@@ -83,9 +83,9 @@ impl Layer for PoolingLayer {
         output.into_dyn()
     }
 
-    fn backpropagate(&mut self, layer_input_dynamic: &ArrayViewD<f32>,
-            layer_output_dynamic: &ArrayViewD<f32>,
-            dl_da_dynamic: &ArrayViewD<f32>) -> ArrayD<f32> {
+    fn backpropagate(&mut self, layer_input_dynamic: &ArrayD<f32>,
+            layer_output_dynamic: &ArrayD<f32>,
+            dl_da_dynamic: &ArrayD<f32>) -> ArrayD<f32> {
         let input_rows = self.input_dimensions[0];
         let input_cols = self.input_dimensions[1];
 

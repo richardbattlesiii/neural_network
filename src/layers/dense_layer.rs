@@ -25,7 +25,7 @@ impl Layer for DenseLayer {
         self.biases = Array1::random(self.output_size, Uniform::new(-0.01, 0.01));
     }
 
-    fn pass(&self, input_dynamic: &ArrayViewD<f32>) -> ArrayD<f32> {
+    fn pass(&self, input_dynamic: &ArrayD<f32>) -> ArrayD<f32> {
         // println!("Input:\n{}", input);
         //println!("Converting shape {:?} to ({} by {:?})", input_dynamic.shape(), input_dynamic.dim()[0], self.input_size);
         let input = input_dynamic.to_shape((input_dynamic.dim()[0], self.input_size)).unwrap();
@@ -37,9 +37,9 @@ impl Layer for DenseLayer {
         product
     }
 
-    fn backpropagate(&mut self, input_dynamic: &ArrayViewD<f32>,
-                my_output_dynamic: &ArrayViewD<f32>,
-                error_dynamic: &ArrayViewD<f32>)
+    fn backpropagate(&mut self, input_dynamic: &ArrayD<f32>,
+                my_output_dynamic: &ArrayD<f32>,
+                error_dynamic: &ArrayD<f32>)
                 -> ArrayD<f32> {
         let batch_size = input_dynamic.dim()[0];
         let input = input_dynamic.to_shape((batch_size, self.input_size)).unwrap();

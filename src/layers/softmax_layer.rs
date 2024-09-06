@@ -23,7 +23,7 @@ impl Layer for SoftmaxLayer {
     ///Does nothing.
     fn set_learning_rate(&mut self, rate: f32) {}
 
-    fn pass(&self, input_dynamic: &ArrayViewD<f32>) -> ArrayD<f32> {
+    fn pass(&self, input_dynamic: &ArrayD<f32>) -> ArrayD<f32> {
         let batch_size = input_dynamic.dim()[0];
 
         let input = input_dynamic.to_shape((batch_size, self.size*self.channels)).unwrap();
@@ -59,9 +59,9 @@ impl Layer for SoftmaxLayer {
         output.into_dyn()
     }
 
-    fn backpropagate(&mut self, layer_input: &ArrayViewD<f32>,
-                layer_output: &ArrayViewD<f32>,
-                dl_da: &ArrayViewD<f32>) -> ArrayD<f32> {
+    fn backpropagate(&mut self, layer_input: &ArrayD<f32>,
+                layer_output: &ArrayD<f32>,
+                dl_da: &ArrayD<f32>) -> ArrayD<f32> {
         dl_da.to_owned()
     }
     
