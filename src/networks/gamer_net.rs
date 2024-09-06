@@ -89,7 +89,7 @@ pub fn make_gamer_net() {
         while env.is_alive() {
             let current_state = env.get_state().into_dyn();
             let converted_state = current_state.view().insert_axis(Axis(0));
-            let q_values = net.predict(&converted_state);
+            let q_values = net.predict(&converted_state.to_owned());
             let q_values = q_values.to_shape((1, q_values.len())).unwrap().to_owned();
             if episode % (ENV_PRINTERVAL) == 0 {
                 println!("{}", env);
@@ -133,14 +133,14 @@ pub fn make_gamer_net() {
                     (1.0 - LEARNING_RATE) * q_values[[0, action.0 as usize]] +
                     LEARNING_RATE * (reward + GAMMA * max_predicted_q);
 
-            net.backpropagate(&converted_state, &labels.view().into_dyn(), 0);
+            net.backpropagate(&converted_state.to_owned(), &labels.into_dyn(), 0);
         }
         if episode % (ENV_PRINTERVAL) == 0 {
             println!("{}", env);
             
             let current_state = env.get_state().into_dyn();
             let converted_state = current_state.view().insert_axis(Axis(0));
-            let q_values = net.predict(&converted_state);
+            let q_values = net.predict(&converted_state.to_owned());
 
             println!("Q values:\n{}\n", q_values);
             
@@ -188,7 +188,7 @@ fn max_predicted_next_q(net: &NeuralNet, env: &Environment) -> f32 {
     for action in 0..ACTIONS_NUM {
         let mut env = env.clone();
         env.update(action as u16);
-        let current_q_values = net.predict(&env.get_state().into_dyn().view().insert_axis(Axis(0)));
+        let current_q_values = net.predict(&env.get_state().insert_axis(Axis(0)).to_owned().into_dyn());
         let current_q_values = current_q_values.to_shape((1, current_q_values.len())).unwrap().to_owned();
         let current_best = get_action(&current_q_values, 0.).1;
         if current_best > max {

@@ -37,7 +37,7 @@ impl NeuralNet {
         }
     }
 
-    pub fn forward_pass(&self, input: &ArrayViewD<f32>) -> Vec<ArrayD<f32>> {
+    pub fn forward_pass(&self, input: &ArrayD<f32>) -> Vec<ArrayD<f32>> {
         let debug = false;
         let mut outputs = vec![];
         outputs.push(input.to_owned());
@@ -54,22 +54,22 @@ impl NeuralNet {
                 println!("Passing layer {layer_num}.");
             }
             let previous_output = &outputs[layer_num];
-            let output = self.layers[layer_num].pass(&previous_output.view());
+            let output = self.layers[layer_num].pass(&previous_output);
             //println!("Output was:\n{}", output);
             outputs.push(output);
         }
         outputs.clone()
     }
 
-    pub fn predict(&self, input: &ArrayViewD<f32>) -> ArrayD<f32> {
+    pub fn predict(&self, input: &ArrayD<f32>) -> ArrayD<f32> {
         let outputs = self.forward_pass(input);
         outputs[outputs.len() - 1].clone()
     }
 
-    pub fn backpropagate(&mut self, input: &ArrayViewD<f32>, labels: &ArrayViewD<f32>, num_classes: usize) -> f32 {
+    pub fn backpropagate(&mut self, input: &ArrayD<f32>, labels: &ArrayD<f32>, num_classes: usize) -> f32 {
         let debug = false;
         let outputs = self.forward_pass(input);
-        let predictions = &outputs[outputs.len() - 1].view();
+        let predictions = &outputs[outputs.len() - 1];
         if predictions.is_any_nan() {
             panic!("NaN(s) in backpropagation.");
         }
@@ -79,16 +79,16 @@ impl NeuralNet {
             if debug {
                 println!("Backpropagating layer {layer_num}");
             }
-            let current_input = &outputs[layer_num].view();
-            let current_output = &outputs[layer_num+1].view();
-            error = self.layers[layer_num].backpropagate(current_input, current_output, &error.view())
+            let current_input = &outputs[layer_num];
+            let current_output = &outputs[layer_num+1];
+            error = self.layers[layer_num].backpropagate(current_input, current_output, &error)
         }
 
         loss
     }
 }
     
-pub fn calculate_bce_loss(predictions: &ArrayViewD<f32>, labels: &ArrayViewD<f32>, num_classes: usize) -> f32 {
+pub fn calculate_bce_loss(predictions: &ArrayD<f32>, labels: &ArrayD<f32>, num_classes: usize) -> f32 {
     let mut loss = 0.0;
     if predictions.shape() != labels.shape() {
         panic!("Mismatched shapes: {:?} predictions and {:?} labels.", predictions.shape(), labels.shape());

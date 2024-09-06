@@ -1,7 +1,7 @@
 use crate::helpers::{activation_functions::*, fft};
 use rand::distributions::Uniform;
 use rand::prelude::Distribution;
-use ndarray::{s, Array1, Array2, Array4, ArrayView2, ArrayView4, ArrayD, ArrayViewD, Axis};
+use ndarray::{s, Array1, Array2, ArrayView2, Array4, ArrayD, Axis};
 
 use super::layer::Layer;
 
@@ -69,7 +69,7 @@ impl Layer for ConvolutionalLayer {
         self.filters.map_inplace(|x| *x = filter_distribution.sample(rng));
     }
 
-    fn pass(&self, input_dynamic: &ArrayViewD<f32>) -> ArrayD<f32> {
+    fn pass(&self, input_dynamic: &ArrayD<f32>) -> ArrayD<f32> {
         let debug = false;
         let batch_size = input_dynamic.dim()[0];
         if debug {
@@ -99,8 +99,8 @@ impl Layer for ConvolutionalLayer {
         output.into_dyn()
     }
 
-    fn backpropagate(&mut self, input_dynamic: &ArrayViewD<f32>,
-            my_output_dynamic: &ArrayViewD<f32>, error_dynamic: &ArrayViewD<f32>) -> ArrayD<f32> {
+    fn backpropagate(&mut self, input_dynamic: &ArrayD<f32>,
+            my_output_dynamic: &ArrayD<f32>, error_dynamic: &ArrayD<f32>) -> ArrayD<f32> {
         let num_samples = input_dynamic.dim()[0];
 
         let input = input_dynamic.to_shape((num_samples, self.input_channels, self.image_size, self.image_size)).unwrap();
@@ -136,7 +136,7 @@ impl Layer for ConvolutionalLayer {
 
                 for channel in 0..self.input_channels {
                     let current_input = sample_input.index_axis(Axis(0), channel);
-                    let current_gradients = calculate_filter_gradients(&current_input, &dl_do.view(), self.filter_size);
+                    let current_gradients = calculate_filter_gradients(&current_input, &dl_do, self.filter_size);
                     filter_gradients.slice_mut(s![filter_num, channel, .., ..]).assign(&current_gradients);
                     
                     let current_filter = filter.index_axis(Axis(0), channel);
@@ -250,7 +250,7 @@ fn convolve_and_slide(input: &ArrayView2<f32>, kernel: &ArrayView2<f32>, padding
     output
 }
 
-fn calculate_filter_gradients(input: &ArrayView2<f32>, dl_do: &ArrayView2<f32>, filter_size: usize) -> Array2<f32> {
+fn calculate_filter_gradients(input: &ArrayView2<f32>, dl_do: &Array2<f32>, filter_size: usize) -> Array2<f32> {
     let mut gradients: Array2<f32> = Array2::zeros((filter_size, filter_size));
 
     for x in 0..dl_do.nrows() {
