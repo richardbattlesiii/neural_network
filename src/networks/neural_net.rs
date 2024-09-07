@@ -68,6 +68,9 @@ impl NeuralNet {
 
     pub fn backpropagate(&mut self, input: &ArrayD<f32>, labels: &ArrayD<f32>, num_classes: usize) -> f32 {
         let debug = false;
+        if debug {
+            println!("Forward pass...");
+        }
         let outputs = self.forward_pass(input);
         let predictions = &outputs[outputs.len() - 1];
         if predictions.is_any_nan() {

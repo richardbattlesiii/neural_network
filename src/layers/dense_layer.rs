@@ -58,7 +58,7 @@ impl Layer for DenseLayer {
         let mut bias_gradients = grad.sum_axis(ndarray::Axis(0));
 
         //Gradient clipping
-        const CLIP_THRESHOLD: f32 = 1.0;
+        const CLIP_THRESHOLD: f32 = 2.0;
         weight_gradients.mapv_inplace(|x| x.clamp(-CLIP_THRESHOLD, CLIP_THRESHOLD));
         bias_gradients.mapv_inplace(|x| x.clamp(-CLIP_THRESHOLD, CLIP_THRESHOLD));
 
