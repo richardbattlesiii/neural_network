@@ -11,7 +11,7 @@ pub mod everhood;
 pub mod prelude;
 
 use mnist::Mnist;
-use networks::neural_net::{calculate_bce_loss, NeuralNet};
+use networks::neural_net::{self, calculate_bce_loss, NeuralNet};
 use prelude::*;
 use std::{f32::consts::TAU, time::Instant};
 use flow::flow_ai::{self, COLORS, PUZZLE_WIDTH};
@@ -185,7 +185,7 @@ fn main() {
     // let image = Array2::from_shape_vec((3,3), vec![1.,2.,3.,4.,5.,6.,7.,8.,9.]).unwrap();
     // let kernel = Array2::from_shape_vec((3,3), vec![0.,0.,0.,0.,1.,1.,0.,0.,0.,]).unwrap();
     // println!("Image:\n{}\n\nKernel:\n{}\n", image, kernel,);
-    // println!("Result:\n{}", convolutional_layer::im_2_col_convolve(&image.view(), &kernel.view()));
+    // println!("Result:\n{}", convolutional_layer::im_2_col_convolve(&image.to_owned(), &kernel.to_owned()));
 }
 
 const TRAINING_SIZE: usize = 60_000;
@@ -214,32 +214,79 @@ fn test_on_mnist() {
 
     let mut net = NeuralNet::new();
 
-    // net.add_layer(Box::from(ConvolutionalLayer::new(
-    //     28,
-    //     1,
-    //     32,
-    //     3,
-    //     0.1,
-    //     LAMBDA,
-    //     RELU,
-    //     CONVOLUTION_BASIC
-    // )));
+    let filters = 16;
+    net.add_layer(Box::from(ConvolutionalLayer::new(
+        28, //Input size
+        1, //Input channels
+        filters, //Filters
+        5, //Kernel size
+        0.4, //Learning rate
+        0.01, //Lambda
+        RELU, //Activation function
+        CONVOLUTION_BASIC //Convolution type
+    )));
 
-    net.add_layer(Box::from(ReshapingLayer::new(vec![1, 28, 28], vec![28*28])));
+    net.add_layer(Box::from(ReshapingLayer::new(vec![filters, 28, 28], vec![filters*28*28])));
+    net.add_layer(Box::from(DenseLayer::new(
+        filters*28*28, //Input size
+        512, //Output size
+        0.4, //Learning rate
+        0.01, //Lambda
+        RELU, //Activation Function
+    )));
 
     net.add_layer(Box::from(DenseLayer::new(
-        28*28,
-        10,
-        0.1,
-        LAMBDA,
-        RELU,
+        512, //Input size
+        10, //Output size
+        0.4, //Learning rate
+        0.01, //Lambda
+        RELU, //Activation Function
     )));
 
     net.add_layer(Box::from(SoftmaxLayer::new(1, 10)));
 
-    for epoch in 0..100 {
-        println!("Training error: {}", net.backpropagate(&train_images.view().into_dyn(), &train_labels.view().into_dyn(), 10));
+    net.initialize();
+
+    let start = Instant::now();
+    for epoch in 0..100_000_000 {
+        let training_error = net.backpropagate(&train_images.to_owned().into_dyn(), &train_labels.to_owned().into_dyn(), 10);
+        let test_predictions = net.predict(&test_images.to_owned().into_dyn());
+        let testing_error = neural_net::calculate_bce_loss(&test_predictions, &test_labels.to_owned().into_dyn(), 10);
+        println!("Epoch: {epoch},\tTraining: {training_error:8.6}\tTesting: {testing_error:8.6}\tAccuracy: {:5.2}%", accuracy(&test_labels, &test_predictions, 10)*100.);
     }
+    let elapsed = start.elapsed().as_millis();
+    println!("Finished in {elapsed}ms.");
+}
+
+fn accuracy(labels: &Array2<f32>, predictions: &ArrayD<f32>, channels: usize) -> f32 {
+    let pred = predictions.to_shape(labels.raw_dim()).unwrap();
+    let mut correct = 0;
+    let mut total = 0;
+    for example in 0..labels.nrows() {
+        for i in (0..labels.ncols()).step_by(channels) {
+            total += 1;
+            let mut max = 0.;
+            let mut max_index = -1;
+            let mut correct_index = -1;
+            for channel in 0..channels {
+                if labels[[example, i + channel]] == 1. {
+                    if correct_index != -1 {
+                        panic!("More than one correct index?");
+                    }
+                    correct_index = channel as isize;
+                }
+                if pred[[example, i + channel]] > max {
+                    max_index = channel as isize;
+                    max = pred[[example, i+channel]];
+                }
+            }
+            if max_index == correct_index {
+                correct += 1;
+            }
+        }
+    }
+
+    return correct as f32 / total as f32;
 }
 
 fn one_hot_encode(labels: Vec<u8>, num_classes: usize) -> Array2<f32> {
@@ -310,14 +357,14 @@ fn make_generic_net() {
         }
 
         //println!("training puzzles are {:?}", training_puzzles.shape());
-        let training_loss = net.backpropagate(&training_puzzles.view().into_dyn(), &training_solutions.view().into_dyn(), COLORS);
+        let training_loss = net.backpropagate(&training_puzzles.to_owned().into_dyn(), &training_solutions.to_owned().into_dyn(), COLORS);
 
         if epoch % PRINTERVAL == 0 {
-            let testing_loss = calculate_bce_loss(&net.predict(&testing_puzzles.view().into_dyn()).view(), &testing_solutions.view().into_dyn(), COLORS);
+            let testing_loss = calculate_bce_loss(&net.predict(&testing_puzzles.to_owned().into_dyn()).to_owned(), &testing_solutions.to_owned().into_dyn(), COLORS);
             println!("Epoch {} -- training loss: {:8.6}, testing loss: {:8.6}", epoch, training_loss, testing_loss);
             
             if epoch % (PRINTERVAL * 10) == 0 {
-                test_net_specific(&net, &testing_puzzles.view().into_dyn(), &testing_solutions.view());
+                test_net_specific(&net, &testing_puzzles.to_owned().into_dyn(), &testing_solutions.to_owned());
             }
         }
     }
@@ -385,7 +432,7 @@ fn make_generic_net() {
 //         }
 
 //         //Train the net.
-//         let training_loss = dn.backpropagate(&training_puzzles.view(), &training_solutions.view());
+//         let training_loss = dn.backpropagate(&training_puzzles.to_owned(), &training_solutions.to_owned());
 
 //         //Print the progress, finding the MSE of predictions on the test puzzles
 //         if epoch % PRINTERVAL == 0 {
@@ -479,7 +526,7 @@ fn make_generic_net() {
 //                             == 0 {
 //                         println!("\t{}%...", epoch*100/(MAX_EPOCHS+EPOCH_INCREASE*i));
 //                     }
-//                     result = dn.backpropagate(&puzzles.view(), &solutions.view());
+//                     result = dn.backpropagate(&puzzles.to_owned(), &solutions.to_owned());
 //                 }
 
 //                 //Get the test puzzles, same as the training puzzles but starting after the index they ended
@@ -540,10 +587,10 @@ fn make_generic_net() {
 //     let mut final_loss = 0.0;
 //     for test_puzzle_num in 0..NUM_TESTING_PUZZLES {
 //         let test_puzzle = test_puzzles.slice(s![test_puzzle_num..test_puzzle_num+1, 0..IO_SIZE]).to_owned();
-//         let test_prediction = best.predict(&test_puzzle.view());
+//         let test_prediction = best.predict(&test_puzzle.to_owned());
 //         let test_solution = test_solutions.slice(s![test_puzzle_num..test_puzzle_num+1, 0..IO_SIZE]).to_owned();
 //         //TODO: change to BCE after switching to one-hot
-//         let loss = best.calculate_bce_loss(&test_prediction.view(), &test_solution.view());
+//         let loss = best.calculate_bce_loss(&test_prediction.to_owned(), &test_solution.to_owned());
 //         final_loss += loss;
 //     }
 //     final_loss /= NUM_TESTING_PUZZLES as f32;
@@ -561,16 +608,16 @@ fn make_generic_net() {
 
 // ///Get the average BCE across all the testing puzzles.
 // fn test_dense_net(dn: &DenseNet, testing_puzzles: &Array2<f32>, testing_solutions: &Array2<f32>) -> f32 {
-//     dn.calculate_bce_loss(&dn.predict(&testing_puzzles.view()).view(), &testing_solutions.view())
+//     dn.calculate_bce_loss(&dn.predict(&testing_puzzles.to_owned()).to_owned(), &testing_solutions.to_owned())
 // }
 
 ///Get a random test puzzle and make a prediction on it.
-fn test_net_specific(net: &NeuralNet, puzzles: &ArrayViewD<f32>, solutions: &ArrayView2<f32>) {
+fn test_net_specific(net: &NeuralNet, puzzles: &ArrayD<f32>, solutions: &Array2<f32>) {
     let randy:f32 = rand::random();
     let puzzle_num = (randy*(puzzles.dim()[0] as f32)) as usize;
     let puzzle = puzzles.slice_axis(Axis(0), Slice::new(puzzle_num as isize, Some(puzzle_num as isize + 1), 1)).to_owned();
     let solution = solutions.slice_axis(Axis(0), Slice::new(puzzle_num as isize, Some(puzzle_num as isize + 1), 1)).to_owned();
-    let prediction = net.predict(&puzzle.view().into_dyn());
+    let prediction = net.predict(&puzzle.to_owned().into_dyn());
     // println!("{}", solution);
     // println!("{}", prediction);
     let converted_solution = predict_from_one_hot(&solution.slice(s![0, ..]));
@@ -579,7 +626,7 @@ fn test_net_specific(net: &NeuralNet, puzzles: &ArrayViewD<f32>, solutions: &Arr
     //to see how good (or more likely bad) the net really is at Flow Free.
     println!("{}", converted_solution);
     println!("{}", converted_prediction);
-    print_confidence_in_right_answer(&prediction.to_shape(solution.raw_dim()).unwrap().view(), &solution.view());
+    print_confidence_in_right_answer(&prediction.to_shape(solution.raw_dim()).unwrap().to_owned(), &solution.to_owned());
 }
 
 ///Converts one-hot encoding into a grid of predictions
@@ -631,7 +678,7 @@ fn interpolate_by_halves(iterations: u32) -> f32 {
 }
 
 ///Prints the average confidence across all correct colors.
-fn print_confidence_in_right_answer(prediction: &ArrayView2<f32>, solution: &ArrayView2<f32>) {
+fn print_confidence_in_right_answer(prediction: &Array2<f32>, solution: &Array2<f32>) {
     let debug = false;
     //Stores the confidence in the right answers
     let mut confidence = 0.;
