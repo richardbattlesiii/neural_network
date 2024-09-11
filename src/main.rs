@@ -10,12 +10,15 @@ pub mod networks;
 pub mod everhood;
 pub mod prelude;
 
+use helpers::{distribution_functions::*, matrix_operations::invert};
 use mnist::Mnist;
 use networks::neural_net::{self, calculate_bce_loss, NeuralNet};
+use num::traits::ops::inv;
 use prelude::*;
-use std::{f32::consts::TAU, time::Instant};
+use rand::{distributions::{Distribution, Uniform}, random, thread_rng, Rng, rngs::ThreadRng};
+use std::{f32::consts::TAU, thread, time::{Duration, Instant}};
 use flow::flow_ai::{self, COLORS, PUZZLE_WIDTH};
-use ndarray::{prelude::*, Slice};
+use ndarray::{prelude::*, concatenate, Slice};
 
 /**
     Used in a custom loss derivative function.
@@ -162,7 +165,9 @@ const NUM_PRINTS_PER_GENERATION:u32 = 10;
 //both with 2000 epochs, 4x4 grid I think
 
 fn main() {
-    test_on_mnist();
+    test_autotuning_with_himmelblau();
+    //make_generic_net();
+    //test_on_mnist();
     // let start = Instant::now();
     // let max = 100000;
     // for i in 0..max {
@@ -190,6 +195,7 @@ fn main() {
 
 const TRAINING_SIZE: usize = 60_000;
 const TESTING_SIZE: usize = 10_000;
+///Trains a neural net to classify handwritten digits.
 fn test_on_mnist() {
     let Mnist {
         trn_img, trn_lbl, tst_img, tst_lbl, ..
@@ -258,6 +264,7 @@ fn test_on_mnist() {
     println!("Finished in {elapsed}ms.");
 }
 
+///Returns the percentage of correct predictions (currently just taking the maximum prediction)
 fn accuracy(labels: &Array2<f32>, predictions: &ArrayD<f32>, channels: usize) -> f32 {
     let pred = predictions.to_shape(labels.raw_dim()).unwrap();
     let mut correct = 0;
@@ -289,6 +296,215 @@ fn accuracy(labels: &Array2<f32>, predictions: &ArrayD<f32>, channels: usize) ->
     return correct as f32 / total as f32;
 }
 
+fn himmelblau(inputs: &Vec<f32>) -> f32 {
+    //thread::sleep(Duration::from_millis(200));
+    let x = inputs[0];
+    let y = inputs[1];
+    let a = x*x + y - 11.;
+    let b = x + y*y - 7.;
+    let h = a*a + b*b;
+    let noise = random::<f32>()*0.01 + 0.995;
+    noise*h
+}
+
+fn test_autotuning_with_himmelblau() {
+    let function = himmelblau;
+    let num_starting_points = 6;
+    let sample_points = 100;
+    let threshold = 4.;
+    let ranges = vec![(-5., 5.), (-5., 5.)];
+    let names = vec!["x".to_string(), "y".to_string()];
+    autotune(function, num_starting_points, sample_points, threshold, &ranges, &names);
+}
+
+const OPTIMIZATION_LAMBDA: f32 = 2.;
+const OPTIMIZATION_NOISE: f32 = 0.1;
+///Use Bayesian optimization to find good hyperparameters for a given function.
+///Currently uses a Gaussian Process surrogate model with the Radial Basis Function
+///as the kernel and Expected Improvement as the acquisition function.
+fn autotune<F> (
+        function: F,
+        num_starting_points: usize,
+        sample_points: usize,
+        continue_threshold: f32,
+        hyperparameter_ranges: &Vec<(f32, f32)>,
+        hyperparameter_names: &Vec<String>,
+)
+where
+    F: Fn(&Vec<f32>) -> f32
+{
+    let num_hyperparameters = hyperparameter_ranges.len();
+    let mut parameters = Array2::<f32>::zeros((0, num_hyperparameters));
+    let mut objective_values: Vec<f32> = vec![];
+    let mut max_objective_value = f32::MIN;
+    println!("Testing random points.");
+    let mut rng = thread_rng();
+    for i in 0..num_starting_points {
+        let current_parameters = uniform_sample(&mut rng, hyperparameter_ranges);
+        parameters.push_row(Array::from(current_parameters.clone()).view()).unwrap();
+        println!("Testing {}", list_hyperparameters(&current_parameters, hyperparameter_names));
+        let objective_value = function(&current_parameters);
+        println!("Output: {}", objective_value);
+        objective_values.push(objective_value);
+        if objective_value > max_objective_value {
+            max_objective_value = objective_value;
+        }
+    }
+
+    // println!("{:?}", objective_values);
+
+    println!("Now the real fun begins.");
+
+    let mut found_new_best = true;
+    while found_new_best {
+        let num_points = objective_values.len();
+
+        //Normalize the objective values
+        let mut normalized_objective_values = Vec::with_capacity(num_starting_points);
+        let mut max_normalized_objective_value = f32::MIN;
+        //Calculate mean
+        let mut mean = 0.;
+        for i in 0..num_starting_points {
+            mean += objective_values[i];
+        }
+        mean /= num_starting_points as f32;
+        let mut std_dev = 0.;
+        //Calculate standard deviation
+        for i in 0..num_starting_points {
+            let dif = objective_values[i] - mean;
+            std_dev += dif*dif;
+        }
+        std_dev = (std_dev / (num_starting_points as f32 - 1.0)).sqrt();
+        //Normalize
+        for i in 0..num_points {
+            normalized_objective_values.push((objective_values[i] - mean) / std_dev);
+            if normalized_objective_values[i] > max_normalized_objective_value {
+                max_normalized_objective_value = normalized_objective_values[i];
+            }
+        }
+
+
+
+        let objective_values_matrix = Array1::from_shape_vec(num_points, normalized_objective_values.clone()).unwrap();
+        //Calculate the covariance matrix.
+        let mut covariance: Array2<f32> = Array2::zeros((num_points, num_points));
+        for i in 0..num_points {
+            for j in 0..num_points {
+                let x1 = parameters.row(i);
+                let x2 = parameters.row(j);
+                covariance[[i, j]] = optimization_kernel(x1, x2, OPTIMIZATION_LAMBDA);
+                if i == j {
+                    covariance[[i, j]] += OPTIMIZATION_NOISE;
+                }
+            }
+        }
+
+        let inverse_covariance = invert(&covariance);
+        
+        // println!("Cov:\n{:5.4}", covariance);
+        // println!("Inv Cov:\n{:5.4}", inverse_covariance);
+
+        //Sample random points and find the Expected Improvement of them
+        let mut best_expected_improvement_parameters: Vec<f32> = vec![];
+        let mut best_expected_improvement = f32::MIN;
+
+        for _ in 0..sample_points {
+            //Get a random point (where we'll sample the Expected Improvement)
+            let current_parameters = Array1::from_shape_vec(num_hyperparameters, uniform_sample(&mut rng, hyperparameter_ranges)).unwrap();
+            // println!("Testing {}", list_hyperparameters(&current_parameters.to_vec(), hyperparameter_names));
+            //Calculate the transpose of the vector of kernel values between the current point and all the previous ones.
+            let mut current_kernel_transposed: Array2<f32> = Array2::zeros((1, 0));
+            for i in 0..normalized_objective_values.len() {
+                let previous_point = parameters.row(i);
+                let kernel_value = optimization_kernel(current_parameters.view(), previous_point, OPTIMIZATION_LAMBDA);
+                // println!("prev point: {}", previous_point);
+                // println!("Kernel val: {}", kernel_value);
+                current_kernel_transposed.push_column(
+                    Array1::from_shape_vec(
+                        1,
+                        vec![kernel_value]
+                    )
+                    .unwrap()
+                    .view()
+                )
+                .unwrap();
+            }
+
+            // println!("\tKernel: values: {}", current_kernel_transposed);
+            let current_mean = (current_kernel_transposed.dot(&inverse_covariance)).dot(&objective_values_matrix).sum();
+            // println!("\tCurrent mean: {}", current_mean);
+            let current_variance_p1 = 1.0;
+            let current_variance_p2 = current_kernel_transposed.dot(&inverse_covariance).dot(&current_kernel_transposed.t());
+            // println!("\tp2: {}", current_variance_p2);
+            let current_variance = (current_variance_p1 - current_variance_p2).sum();
+            // println!("\tCurrent std dev: {}", current_variance);
+
+            let adjusted_mean = current_mean - max_normalized_objective_value;
+            let z = adjusted_mean / current_variance;
+            // println!("\tAdjusted mean: {}", adjusted_mean);
+            // println!("\tz: {}", z);
+            // println!("\tcdf: {}", standard_normal_cdf(z));
+            // println!("\tpdf: {}", standard_normal_pdf(z));
+            let current_expected_improvement =
+                adjusted_mean
+                * standard_normal_cdf(z)
+                + current_variance
+                * standard_normal_pdf(z);
+            // println!("\tExpected improvement: {}", current_expected_improvement);
+
+            if current_expected_improvement > best_expected_improvement {
+                best_expected_improvement = current_expected_improvement;
+                best_expected_improvement_parameters = current_parameters.to_vec();
+            }
+        }
+
+        //Now that we've found the (expected) best random point, actually evaluate it.
+        println!("Best: {}", best_expected_improvement);
+        println!("Testing {}", list_hyperparameters(&best_expected_improvement_parameters, hyperparameter_names));
+        let objective_value = function(&best_expected_improvement_parameters);
+        println!("Output: {}", objective_value);
+        objective_values.push(objective_value);
+        parameters.push_row(Array::from_shape_vec(num_hyperparameters, best_expected_improvement_parameters).unwrap().view()).unwrap();
+
+        found_new_best = num_points == num_starting_points || objective_value*continue_threshold > max_objective_value;
+    }
+
+    let last_point = objective_values.len() - 1;
+    println!("Done. Final parameters: {}\nwith output: {}",
+        list_hyperparameters(
+            &parameters.row(last_point).to_vec(),
+            hyperparameter_names),
+        objective_values[last_point],
+    );
+}
+
+fn uniform_sample(rng: &mut ThreadRng, ranges: &Vec<(f32, f32)>) -> Vec<f32> {
+    let mut output: Vec<f32> = vec![];
+    for i in 0..ranges.len() {
+        let min = ranges[i].0;
+        let max = ranges[i].1;
+        let range = Uniform::from(min..max);
+        output.push(range.sample(rng));
+    }
+    output
+}
+
+fn optimization_kernel(x1: ArrayView1<f32>, x2: ArrayView1<f32>, lambda: f32) -> f32 {
+    let dif = &x1 - &x2;
+    let output = ((&dif*&dif).sum()/(-2.*lambda)).exp();
+    // println!("optim kern: {}", output);
+    output
+}
+
+///Returns a String listing the parameters and their values.
+fn list_hyperparameters(params: &Vec<f32>, names: &Vec<String>) -> String {
+    let mut output = String::new();
+    for i in 0..params.len() {
+        output += &format!("{}: {:4.3}, ", names[i], params[i]);
+    }
+    output
+}
+
 fn one_hot_encode(labels: Vec<u8>, num_classes: usize) -> Array2<f32> {
     let num_samples = labels.len();
     let mut one_hot = Array2::<f32>::zeros((num_samples, num_classes));
@@ -298,6 +514,7 @@ fn one_hot_encode(labels: Vec<u8>, num_classes: usize) -> Array2<f32> {
     one_hot
 }
 
+///Tests the NeuralNet struct on Flow Free puzzles.
 fn make_generic_net() {
     let mut net = NeuralNet::new();
 
