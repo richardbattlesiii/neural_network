@@ -1,6 +1,7 @@
 use crate::layers::layer::Layer;
 use ndarray::{ArrayD, ArrayViewD, IxDyn};
 
+#[derive(Clone)]
 pub struct ReshapingLayer {
     input_shape: Vec<usize>,
     output_shape: Vec<usize>,
@@ -45,13 +46,14 @@ impl Layer for ReshapingLayer {
     }
     
     fn backpropagate(&mut self, layer_input: &ArrayD<f32>,
-            layer_output: &ArrayD<f32>,
-            dl_da: &ArrayD<f32>) -> ArrayD<f32> {
-        let batch_size = dl_da.dim()[0];
-        let mut input_vec = self.output_shape.clone();
-        input_vec.insert(0, batch_size);
-        let input_shape = IxDyn(&input_vec);
-        dl_da.to_shape(input_shape).unwrap().to_owned()
+        layer_output: &ArrayD<f32>,
+        dl_da: &ArrayD<f32>
+    ) -> ArrayD<f32> {
+        self.accumulate_gradients(layer_input, layer_output, dl_da)
+    }
+
+    fn copy_into_box(&self) -> Box<dyn Layer> {
+        Box::new(self.clone())
     }
     
     fn get_input_shape(&self) -> Vec<usize> {
@@ -61,4 +63,21 @@ impl Layer for ReshapingLayer {
     fn get_output_shape(&self) -> Vec<usize> {
         self.output_shape.clone()
     }
+    
+    fn zero_gradients(&mut self) {}
+    
+    fn accumulate_gradients(
+        &mut self,
+        layer_input: &ArrayD<f32>,
+        layer_output: &ArrayD<f32>,
+        dl_da: &ArrayD<f32>
+    ) -> ArrayD<f32> {
+        let batch_size = dl_da.dim()[0];
+        let mut input_vec = self.output_shape.clone();
+        input_vec.insert(0, batch_size);
+        let input_shape = IxDyn(&input_vec);
+        dl_da.to_shape(input_shape).unwrap().to_owned()
+    }
+    
+    fn apply_accumulated_gradients(&mut self) {}
 }

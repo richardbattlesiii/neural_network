@@ -16,7 +16,7 @@ fn fft_1d(input: &ArrayView1<Complex32>) -> Vec<Complex32> {
 
     let mut output: Vec<Complex32> = vec![Complex32::default(); len];
     
-    (0..len/2).into_iter().for_each(|k| {
+    (0..len/2).for_each(|k| {
         let wk = c32(0., -TAU * k as f32 / len as f32).exp();
         let t = wk * odd[k];
         output[k] = even[k] + t;
@@ -35,7 +35,6 @@ pub fn fft(input: &ArrayView2<f32>) -> Array2<Complex32> {
         c32(*real_num, 0.)
     });
     let rows_fftd: Vec<Complex32> = (0..rows)
-            .into_iter()
             .flat_map(|row| {
                 fft_1d(&complex_input.slice(s![row, ..]))
     })

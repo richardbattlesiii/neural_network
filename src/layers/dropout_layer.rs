@@ -6,6 +6,7 @@ pub const DROPOUT_MULTIPLY: u8 = 0;
 pub const DROPOUT_ADD: u8 = 1;
 pub const DROPOUT_ZERO: u8 = 2;
 
+#[derive(Clone)]
 pub struct DropoutLayer {
     dimensions: Vec<usize>,
     dropout_chance: f32,
@@ -74,6 +75,10 @@ impl Layer for DropoutLayer {
         dl_da.to_owned()
     }
 
+    fn copy_into_box(&self) -> Box<dyn Layer> {
+        Box::new(self.clone())
+    }
+
     fn get_input_shape(&self) -> Vec<usize> {
         self.dimensions.clone()
     }
@@ -81,4 +86,19 @@ impl Layer for DropoutLayer {
     fn get_output_shape(&self) -> Vec<usize> {
         self.dimensions.clone()
     }
+    
+    ///Does nothing.
+    fn zero_gradients(&mut self) {}
+    
+    fn accumulate_gradients(
+        &mut self,
+        layer_input: &ArrayD<f32>,
+        layer_output: &ArrayD<f32>,
+        dl_da: &ArrayD<f32>
+    ) -> ArrayD<f32> {
+        dl_da.to_owned()
+    }
+    
+    ///Does nothing.
+    fn apply_accumulated_gradients(&mut self) {}
 }

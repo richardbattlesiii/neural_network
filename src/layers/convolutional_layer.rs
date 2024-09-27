@@ -13,6 +13,7 @@ pub const CONVOLUTION_BASIC:u8 = 0;
 pub const CONVOLUTION_FFT:u8 = 1;
 pub const CONVOLUTION_IM_2_COL:u8 = 2;
 
+#[derive(Clone)]
 pub struct ConvolutionalLayer {
     image_size:usize,
     input_channels:usize,
@@ -24,33 +25,58 @@ pub struct ConvolutionalLayer {
 
     filters:Array4<f32>,
     biases:Array1<f32>,
+
+    filter_gradients:Array4<f32>,
+    bias_gradients:Array1<f32>,
+
+    filter_first_moments:Array4<f32>,
+    bias_first_moments:Array1<f32>,
+    filter_second_moments:Array4<f32>,
+    bias_second_moments:Array1<f32>,
+    timestep: i32,
+
+    num_batches: usize,
+
     num_filters: usize,
     filter_size: usize,
 }
 
 impl ConvolutionalLayer {
     pub fn new(
-            image_size: usize,
-            input_channels: usize,
-            num_filters: usize,
-            filter_size: usize,
-            learning_rate: f32,
-            lambda: f32,
-            activation_function: u8,
-            convolution_method: u8,
-            ) -> ConvolutionalLayer {
-
+        image_size: usize,
+        input_channels: usize,
+        num_filters: usize,
+        filter_size: usize,
+        learning_rate: f32,
+        lambda: f32,
+        activation_function: u8,
+        convolution_method: u8,
+    ) -> ConvolutionalLayer {
         ConvolutionalLayer {
             image_size,
             input_channels,
+
             learning_rate,
             lambda,
             activation_function,
+            convolution_method,
+            
             filters: Array4::zeros((num_filters, input_channels, filter_size, filter_size)),
             biases: Array1::zeros(num_filters),
+
+            filter_gradients: Array4::zeros((num_filters, input_channels, filter_size, filter_size)),
+            bias_gradients: Array1::zeros(num_filters),
+
+            filter_first_moments: Array4::zeros((num_filters, input_channels, filter_size, filter_size)),
+            bias_first_moments: Array1::zeros(num_filters),
+            filter_second_moments: Array4::zeros((num_filters, input_channels, filter_size, filter_size)),
+            bias_second_moments: Array1::zeros(num_filters),
+            timestep: 0,
+
+            num_batches: 0,
+
             num_filters,
             filter_size,
-            convolution_method,
         }
     }
 
@@ -58,6 +84,7 @@ impl ConvolutionalLayer {
         (&self.filters * &self.filters).sum().sqrt()
     }
 }
+
 impl Layer for ConvolutionalLayer {
     fn initialize(&mut self) {
         let filter_units = self.filter_size*self.filter_size;
@@ -99,15 +126,31 @@ impl Layer for ConvolutionalLayer {
         output.into_dyn()
     }
 
-    fn backpropagate(&mut self, input_dynamic: &ArrayD<f32>,
-            my_output_dynamic: &ArrayD<f32>, error_dynamic: &ArrayD<f32>) -> ArrayD<f32> {
-        let num_samples = input_dynamic.dim()[0];
+    fn backpropagate(
+        &mut self,
+        input_dynamic: &ArrayD<f32>,
+        my_output_dynamic: &ArrayD<f32>,
+        error_dynamic: &ArrayD<f32>
+    ) -> ArrayD<f32> {
+        self.zero_gradients();
+        let output = self.accumulate_gradients(input_dynamic, my_output_dynamic, error_dynamic);
+        self.apply_accumulated_gradients();
+        output
+    }
 
-        let input = input_dynamic.to_shape((num_samples, self.input_channels, self.image_size, self.image_size)).unwrap();
+    fn accumulate_gradients(
+        &mut self,
+        layer_input: &ArrayD<f32>,
+        layer_output: &ArrayD<f32>,
+        dl_da: &ArrayD<f32>
+    ) -> ArrayD<f32> {
+        let num_samples = layer_input.dim()[0];
+
+        let input = layer_input.to_shape((num_samples, self.input_channels, self.image_size, self.image_size)).unwrap();
 
         let output_shape = (num_samples, self.num_filters, self.image_size, self.image_size);
-        let my_output = my_output_dynamic.to_shape(output_shape).unwrap();
-        let error = error_dynamic.to_shape(output_shape).unwrap();
+        let my_output = layer_output.to_shape(output_shape).unwrap();
+        let error = dl_da.to_shape(output_shape).unwrap();
 
         //dLoss/dFilters
         let mut filter_gradients: Array4<f32> = Array4::zeros((self.num_filters, self.input_channels, self.filter_size, self.filter_size));
@@ -149,8 +192,8 @@ impl Layer for ConvolutionalLayer {
         }
         
         //L2 regularization
-        filter_gradients.scaled_add(self.lambda, &self.filters);
-        bias_gradients.scaled_add(self.lambda, &self.biases);
+        // filter_gradients.scaled_add(self.lambda, &self.filters);
+        // bias_gradients.scaled_add(self.lambda, &self.biases);
 
         //Gradient clipping
         let filter_gradients_norm = (&filter_gradients*&filter_gradients).sum().sqrt();
@@ -164,10 +207,16 @@ impl Layer for ConvolutionalLayer {
             bias_gradients *= clipping_threshold/bias_gradients_norm;
         }
 
-        let coefficient = -self.learning_rate/num_samples as f32;
-        self.filters.scaled_add(coefficient, &filter_gradients);
-        self.biases.scaled_add(coefficient, &bias_gradients);
+        let coefficient = 1.0/num_samples as f32;
+        self.filter_gradients.scaled_add(coefficient, &filter_gradients);
+        self.bias_gradients.scaled_add(coefficient, &bias_gradients);
+        self.num_batches += 1;
+
         output.into_dyn()
+    }
+
+    fn copy_into_box(&self) -> Box<dyn Layer> {
+        Box::new(self.clone())
     }
 
     fn set_learning_rate(&mut self, rate: f32) {
@@ -180,6 +229,48 @@ impl Layer for ConvolutionalLayer {
     
     fn get_output_shape(&self) -> Vec<usize> {
         vec![self.num_filters, self.image_size, self.image_size]
+    }
+    
+    fn zero_gradients(&mut self) {
+        self.filter_gradients = Array4::zeros((self.num_filters, self.input_channels, self.filter_size, self.filter_size));
+        self.bias_gradients = Array1::zeros(self.num_filters);
+        self.num_batches = 0;
+    }
+    
+    fn apply_accumulated_gradients(&mut self) {
+        self.timestep += 1;
+        let coefficient = 1.0 / self.num_batches as f32;
+
+        self.filter_gradients *= coefficient;
+        self.bias_gradients *= coefficient;
+
+        let beta1 = 0.8;
+        let beta2 = 0.9;
+        let epsilon = 1e-7;
+
+        let mut filter_first_moments = beta1 * &self.filter_first_moments + (1.0 - beta1) * &self.filter_gradients;
+        filter_first_moments = &filter_first_moments / (1.0 - beta1.powi(self.timestep));
+
+        let mut bias_first_moments = beta1 * &self.bias_first_moments + (1.0 - beta1) * &self.bias_gradients;
+        bias_first_moments = &bias_first_moments / (1.0 - beta1.powi(self.timestep));
+
+        let mut filter_second_moments = beta2 * &self.filter_second_moments + (1.0 - beta2) * &self.filter_gradients * &self.filter_gradients;
+        filter_second_moments = &filter_second_moments / (1.0 - beta2.powi(self.timestep));
+
+        let mut bias_second_moments = beta2 * &self.bias_second_moments + (1.0 - beta2) * &self.bias_gradients * &self.bias_gradients;
+        bias_second_moments = &bias_second_moments / (1.0 - beta2.powi(self.timestep));
+
+        self.filter_first_moments = filter_first_moments.clone();
+        self.bias_first_moments = bias_first_moments.clone();
+        self.filter_second_moments = filter_second_moments.clone();
+        self.bias_second_moments = bias_second_moments.clone();
+
+        let filter_change = filter_first_moments / (filter_second_moments.sqrt() + epsilon);
+        let bias_change = bias_first_moments / (bias_second_moments.sqrt() + epsilon);
+
+        self.filters.scaled_add(-self.learning_rate, &filter_change);
+        self.biases.scaled_add(-self.learning_rate, &bias_change);
+        self.zero_gradients();
     }
 }
 

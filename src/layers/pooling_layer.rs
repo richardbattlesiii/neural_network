@@ -5,6 +5,7 @@ pub const POOLING_MAX: u8 = 0;
 pub const POOLING_AVERAGE: u8 = 1;
 
 ///Only accepts 2d I/O for now.
+#[derive(Clone)]
 pub struct PoolingLayer {
     input_dimensions: Vec<usize>,
     output_dimensions: Vec<usize>,
@@ -86,6 +87,34 @@ impl Layer for PoolingLayer {
     fn backpropagate(&mut self, layer_input_dynamic: &ArrayD<f32>,
             layer_output_dynamic: &ArrayD<f32>,
             dl_da_dynamic: &ArrayD<f32>) -> ArrayD<f32> {
+        self.accumulate_gradients(layer_input_dynamic, layer_output_dynamic, dl_da_dynamic)
+    }
+
+    fn copy_into_box(&self) -> Box<dyn Layer> {
+        Box::new(self.clone())
+    }
+
+    fn get_input_shape(&self) -> Vec<usize> {
+        self.input_dimensions.clone()
+    }
+
+    fn get_output_shape(&self) -> Vec<usize> {
+        let mut output = self.input_dimensions.clone();
+        for i in 0..output.len() {
+            output[i] /= self.pooling_dimensions[i];
+        }
+        output
+    }
+    
+    ///Does nothing
+    fn zero_gradients(&mut self) {}
+    
+    fn accumulate_gradients(
+        &mut self,
+        layer_input: &ArrayD<f32>,
+        layer_output: &ArrayD<f32>,
+        dl_da: &ArrayD<f32>
+    ) -> ArrayD<f32> {
         let input_rows = self.input_dimensions[0];
         let input_cols = self.input_dimensions[1];
 
@@ -96,12 +125,12 @@ impl Layer for PoolingLayer {
         let output_cols = input_cols / pool_rows;
 
         let mut dl_dx: Array2<f32> = Array2::zeros((input_rows, input_cols));
-        let dl_da = dl_da_dynamic.to_shape((output_rows, output_cols)).unwrap();
+        let dl_da = dl_da.to_shape((output_rows, output_cols)).unwrap();
 
         match self.pooling_mode {
             POOLING_MAX => {
-                let layer_input = layer_input_dynamic.to_shape((input_rows, input_cols)).unwrap();
-                let layer_output = layer_output_dynamic.to_shape((output_rows, output_cols)).unwrap();
+                let layer_input = layer_input.to_shape((input_rows, input_cols)).unwrap();
+                let layer_output = layer_output.to_shape((output_rows, output_cols)).unwrap();
                 for row in 0..input_rows {
                     for col in 0..input_cols {
                         let output_row = row / pool_rows;
@@ -125,21 +154,12 @@ impl Layer for PoolingLayer {
                         dl_dx[[row, col]] = dl_da[[output_row, output_col]] / pooling_size as f32;
                     }
                 }
-                return dl_dx.into_dyn();
+                dl_dx.into_dyn()
             },
             _ => panic!("Invalid pooling mode in backpropagate... how did it not get an error in the forward pass???"),
         }
     }
-
-    fn get_input_shape(&self) -> Vec<usize> {
-        self.input_dimensions.clone()
-    }
-
-    fn get_output_shape(&self) -> Vec<usize> {
-        let mut output = self.input_dimensions.clone();
-        for i in 0..output.len() {
-            output[i] /= self.pooling_dimensions[i];
-        }
-        output
-    }
+    
+    ///Does nothing.
+    fn apply_accumulated_gradients(&mut self) {}
 }

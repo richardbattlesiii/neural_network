@@ -2,6 +2,7 @@ use ndarray::prelude::{ArrayD, ArrayViewD, Array2};
 use crate::layers::layer::Layer;
 
 ///Currently only supports 2d (batch size x prediction) inputs
+#[derive(Clone)]
 pub struct SoftmaxLayer {
     size: usize,
     channels: usize
@@ -59,6 +60,10 @@ impl Layer for SoftmaxLayer {
         output.into_dyn()
     }
 
+    fn copy_into_box(&self) -> Box<dyn Layer> {
+        Box::new(self.clone())
+    }
+
     fn backpropagate(&mut self, layer_input: &ArrayD<f32>,
                 layer_output: &ArrayD<f32>,
                 dl_da: &ArrayD<f32>) -> ArrayD<f32> {
@@ -72,4 +77,17 @@ impl Layer for SoftmaxLayer {
     fn get_output_shape(&self) -> Vec<usize> {
         vec![self.size*self.channels]
     }
+    
+    fn zero_gradients(&mut self) {}
+    
+    fn accumulate_gradients(
+        &mut self,
+        layer_input: &ArrayD<f32>,
+        layer_output: &ArrayD<f32>,
+        dl_da: &ArrayD<f32>
+    ) -> ArrayD<f32> {
+        dl_da.to_owned()
+    }
+    
+    fn apply_accumulated_gradients(&mut self) {}
 }
