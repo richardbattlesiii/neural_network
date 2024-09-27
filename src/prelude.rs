@@ -10,7 +10,5 @@ pub use crate::layers::{
 pub use crate::helpers::activation_functions::*;
 pub use crate::networks::{
         neural_net::NeuralNet,
-        dense_net,
-        convolutional_net,
         gamer_net,
 };

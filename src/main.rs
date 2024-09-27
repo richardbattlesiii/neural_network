@@ -7,12 +7,12 @@ pub mod helpers;
 pub mod layers;
 pub mod flow;
 pub mod networks;
-pub mod everhood;
+pub mod environments;
 pub mod prelude;
 
 use helpers::{distribution_functions::*, matrix_operations::invert};
 use mnist::Mnist;
-use networks::neural_net::{self, calculate_bce_loss, NeuralNet};
+use networks::{dqn, neural_net::{self, calculate_bce_loss, NeuralNet}};
 use num::traits::ops::inv;
 use prelude::*;
 use rand::{distributions::{Distribution, Uniform}, random, thread_rng, Rng, rngs::ThreadRng};
@@ -165,18 +165,10 @@ const NUM_PRINTS_PER_GENERATION:u32 = 10;
 //both with 2000 epochs, 4x4 grid I think
 
 fn main() {
-    test_autotuning_with_himmelblau();
+    // dqn::train_dqn_on_cart_pole();
+    //test_autotuning_with_himmelblau();
     //make_generic_net();
-    //test_on_mnist();
-    // let start = Instant::now();
-    // let max = 100000;
-    // for i in 0..max {
-    //     if i % (max / 100) == 0 {
-    //         println!("{}%", i*100/max);
-    //     }
-    //     flow_ai::generate_solution_with_edging();
-    // }
-    // println!("Came in {:8.6}s.", start.elapsed().as_secs_f32());
+    test_on_mnist();
 
     // let start = Instant::now();
     // flow_ai::generate_puzzles_3d(1000, NUM_THREADS);
@@ -185,16 +177,12 @@ fn main() {
     //xor();
     //make_convolutional_net();
     //genetic_algorithm();
-
     //gamer_net::make_gamer_net();
-    // let image = Array2::from_shape_vec((3,3), vec![1.,2.,3.,4.,5.,6.,7.,8.,9.]).unwrap();
-    // let kernel = Array2::from_shape_vec((3,3), vec![0.,0.,0.,0.,1.,1.,0.,0.,0.,]).unwrap();
-    // println!("Image:\n{}\n\nKernel:\n{}\n", image, kernel,);
-    // println!("Result:\n{}", convolutional_layer::im_2_col_convolve(&image.to_owned(), &kernel.to_owned()));
 }
 
-const TRAINING_SIZE: usize = 60_000;
-const TESTING_SIZE: usize = 10_000;
+const TRAINING_SIZE: usize = 60000;
+const BATCH_SIZE: usize = 1000;
+const TESTING_SIZE: usize = 10000;
 ///Trains a neural net to classify handwritten digits.
 fn test_on_mnist() {
     let Mnist {
@@ -226,17 +214,18 @@ fn test_on_mnist() {
         1, //Input channels
         filters, //Filters
         5, //Kernel size
-        0.4, //Learning rate
+        0.1, //Learning rate
         0.01, //Lambda
         RELU, //Activation function
         CONVOLUTION_BASIC //Convolution type
     )));
 
     net.add_layer(Box::from(ReshapingLayer::new(vec![filters, 28, 28], vec![filters*28*28])));
+
     net.add_layer(Box::from(DenseLayer::new(
         filters*28*28, //Input size
         512, //Output size
-        0.4, //Learning rate
+        0.1, //Learning rate
         0.01, //Lambda
         RELU, //Activation Function
     )));
@@ -244,7 +233,7 @@ fn test_on_mnist() {
     net.add_layer(Box::from(DenseLayer::new(
         512, //Input size
         10, //Output size
-        0.4, //Learning rate
+        0.1, //Learning rate
         0.01, //Lambda
         RELU, //Activation Function
     )));
@@ -255,10 +244,16 @@ fn test_on_mnist() {
 
     let start = Instant::now();
     for epoch in 0..100_000_000 {
-        let training_error = net.backpropagate(&train_images.to_owned().into_dyn(), &train_labels.to_owned().into_dyn(), 10);
+        let mut avg_training_error = 0.;
+        for batch in 0..TRAINING_SIZE/BATCH_SIZE {
+            let batch_range = batch*BATCH_SIZE..(batch+1)*BATCH_SIZE;
+            let training_error = net.backpropagate(&train_images.slice(s![batch_range.clone(), .., .., ..]).to_owned().into_dyn(), &train_labels.slice(s![batch_range, ..]).to_owned().into_dyn(), 10);
+            avg_training_error += training_error;
+        }
+        avg_training_error /= TRAINING_SIZE as f32/BATCH_SIZE as f32;
         let test_predictions = net.predict(&test_images.to_owned().into_dyn());
         let testing_error = neural_net::calculate_bce_loss(&test_predictions, &test_labels.to_owned().into_dyn(), 10);
-        println!("Epoch: {epoch},\tTraining: {training_error:8.6}\tTesting: {testing_error:8.6}\tAccuracy: {:5.2}%", accuracy(&test_labels, &test_predictions, 10)*100.);
+        println!("Epoch: {epoch},\tTraining: {avg_training_error:8.6}\tTesting: {testing_error:8.6}\tAccuracy: {:5.2}%", accuracy(&test_labels, &test_predictions, 10)*100.);
     }
     let elapsed = start.elapsed().as_millis();
     println!("Finished in {elapsed}ms.");
@@ -293,10 +288,10 @@ fn accuracy(labels: &Array2<f32>, predictions: &ArrayD<f32>, channels: usize) ->
         }
     }
 
-    return correct as f32 / total as f32;
+    correct as f32 / total as f32
 }
 
-fn himmelblau(inputs: &Vec<f32>) -> f32 {
+fn himmelblau(inputs: &[f32]) -> f32 {
     //thread::sleep(Duration::from_millis(200));
     let x = inputs[0];
     let y = inputs[1];
@@ -328,10 +323,10 @@ fn autotune<F> (
         sample_points: usize,
         continue_threshold: f32,
         hyperparameter_ranges: &Vec<(f32, f32)>,
-        hyperparameter_names: &Vec<String>,
+        hyperparameter_names: &[String],
 )
 where
-    F: Fn(&Vec<f32>) -> f32
+    F: Fn(&[f32]) -> f32
 {
     let num_hyperparameters = hyperparameter_ranges.len();
     let mut parameters = Array2::<f32>::zeros((0, num_hyperparameters));
@@ -480,10 +475,8 @@ where
 
 fn uniform_sample(rng: &mut ThreadRng, ranges: &Vec<(f32, f32)>) -> Vec<f32> {
     let mut output: Vec<f32> = vec![];
-    for i in 0..ranges.len() {
-        let min = ranges[i].0;
-        let max = ranges[i].1;
-        let range = Uniform::from(min..max);
+    for (min, max) in ranges {
+        let range = Uniform::from(*min..*max);
         output.push(range.sample(rng));
     }
     output
@@ -497,7 +490,7 @@ fn optimization_kernel(x1: ArrayView1<f32>, x2: ArrayView1<f32>, lambda: f32) ->
 }
 
 ///Returns a String listing the parameters and their values.
-fn list_hyperparameters(params: &Vec<f32>, names: &Vec<String>) -> String {
+fn list_hyperparameters(params: &[f32], names: &[String]) -> String {
     let mut output = String::new();
     for i in 0..params.len() {
         output += &format!("{}: {:4.3}, ", names[i], params[i]);

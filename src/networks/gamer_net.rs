@@ -6,15 +6,16 @@ use std::fs::File;
 use std::thread;
 use std::time::{Duration, Instant};
 use ndarray::prelude::*;
-use crate::everhood::everhood::{self, ACTIONS_NUM};
-use crate::everhood::everhood::Environment;
+use crate::environments::everhood::{self, ACTIONS_NUM};
+use crate::environments::everhood::EverhoodEnvironment;
+use crate::environments::environment::Environment;
 use crate::helpers::activation_functions::{RELU, SIGMOID};
 use crate::prelude::*;
 use super::neural_net::NeuralNet;
 
 const GAMMA: f32 = 0.9;
 const LEARNING_RATE: f32 = 0.002;
-const LAMBDA: f32 = 0.1;
+const LAMBDA: f32 = 0.01;
 
 const MAX_EPISODES: i32 = 100001;
 const PRINTERVAL: i32 = 100;
@@ -29,7 +30,7 @@ pub fn make_gamer_net() {
 
     //Convolutional layers
     let size = everhood::NUM_STATE_CHANNELS*HEIGHT*WIDTH;
-    let num_channels = &[everhood::NUM_STATE_CHANNELS, 4, 8];
+    let num_channels = &[everhood::NUM_STATE_CHANNELS, 8, 16];
     let num_conv_layers = 2;
     let convolutional_layer_sizes = &[3, 3];
     for i in 0..num_conv_layers {
@@ -73,10 +74,11 @@ pub fn make_gamer_net() {
         LAMBDA,
         RELU
     )));
-    net.add_layer(Box::from(SoftmaxLayer::new(
-        everhood::ACTIONS_NUM,
-        1,
-    )));
+
+    // net.add_layer(Box::from(SoftmaxLayer::new(
+    //     everhood::ACTIONS_NUM,
+    //     1,
+    // )));
 
     net.initialize();
 
@@ -85,8 +87,8 @@ pub fn make_gamer_net() {
     let mut best_time = 0;
     let start = Instant::now();
     while episode < MAX_EPISODES {
-        let mut env = Environment::new(HEIGHT, WIDTH);
-        while env.is_alive() {
+        let mut env = EverhoodEnvironment::new(HEIGHT, WIDTH);
+        while !env.is_done() {
             let current_state = env.get_state().into_dyn();
             let converted_state = current_state.view().insert_axis(Axis(0));
             let q_values = net.predict(&converted_state.to_owned());
@@ -105,26 +107,20 @@ pub fn make_gamer_net() {
             env.update(action.0);
 
             //Reward function
-            let mut reward;
+            let mut reward = 0.5;
             let max_predicted_q;
-            if env.is_alive() {
-                reward = 0.1 * (env.time() as f32).sqrt();
+            if !env.is_done() {
                 if env.is_player_on_fire() {
-                    reward = -1.;
+                    reward = 0.2;
                 }
-                // reward = (env.time() as f32).sqrt()/2.;
-                // if env.is_player_on_fire() {
-                //     reward /= 4.;
-                // }
-                if env.time() > best_time {
+                else if env.time() > best_time {
                     best_time = env.time();
-                    reward += 2.;
+                    reward = 1.;
                 }
                 max_predicted_q = max_predicted_next_q(&net, &env);
             }
             else {
-                reward = -3.;
-                //reward = (env.time() as f32).cbrt()/2. -(episode as f32 + 1.).ln();
+                reward = 0.;
                 max_predicted_q = 0.;
             }
             //println!("Reward at time {} is {}.", env.time(), reward);
@@ -133,7 +129,7 @@ pub fn make_gamer_net() {
                     (1.0 - LEARNING_RATE) * q_values[[0, action.0 as usize]] +
                     LEARNING_RATE * (reward + GAMMA * max_predicted_q);
 
-            net.backpropagate(&converted_state.to_owned(), &labels.into_dyn(), 0);
+            net.backpropagate(&converted_state.to_owned(), &labels.into_dyn(), ACTIONS_NUM);
         }
         if episode % (ENV_PRINTERVAL) == 0 {
             println!("{}", env);
@@ -149,7 +145,7 @@ pub fn make_gamer_net() {
             println!("Lasted for {} steps on episode {}.", env.time(), episode);
             println!("\tEpsilon: {}", epsilon);
         }
-        epsilon *= 0.9999;
+        epsilon *= 0.9995;
         episode += 1;
     }
     let duration = start.elapsed().as_millis();
@@ -161,8 +157,8 @@ fn get_action(q_values: &Array2<f32>, epsilon: f32) -> (u16, f32) {
     let q_values = q_values.to_shape(q_values.len()).unwrap();
     let mut rng = rand::thread_rng();
 
-    //Explore
     if rng.gen::<f32>() < epsilon {
+        //Explore
         let random_index = rng.gen_range(0..q_values.len()) as u16;
         (random_index, q_values[[random_index as usize]])
     }
@@ -180,8 +176,8 @@ fn get_action(q_values: &Array2<f32>, epsilon: f32) -> (u16, f32) {
     }
 }
 
-fn max_predicted_next_q(net: &NeuralNet, env: &Environment) -> f32 {
-    if !env.is_alive() {
+fn max_predicted_next_q(net: &NeuralNet, env: &EverhoodEnvironment) -> f32 {
+    if env.is_done() {
         return 0.0;
     }
     let mut max = f32::MIN;

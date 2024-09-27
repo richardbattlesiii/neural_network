@@ -7,8 +7,7 @@ pub fn normal_pdf(z: f32, mean: f32, std_dev: f32) -> f32 {
 }
 
 pub fn standard_normal_pdf(z: f32) -> f32 {
-    let output = (-z*z/2.).exp() / TAU.sqrt();
-    output
+    (-z*z/2.).exp() / TAU.sqrt()
 }
 
 pub fn normal_cdf(z: f32, mean: f32, std_dev: f32) -> f32 {
