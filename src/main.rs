@@ -214,7 +214,7 @@ fn test_on_mnist() {
         1, //Input channels
         filters, //Filters
         5, //Kernel size
-        0.1, //Learning rate
+        0.05, //Learning rate
         0.01, //Lambda
         RELU, //Activation function
         CONVOLUTION_BASIC //Convolution type
@@ -225,15 +225,22 @@ fn test_on_mnist() {
     net.add_layer(Box::from(DenseLayer::new(
         filters*28*28, //Input size
         512, //Output size
-        0.1, //Learning rate
+        0.05, //Learning rate
         0.01, //Lambda
         RELU, //Activation Function
+    )));
+
+    net.add_layer(Box::from(DropoutLayer::new(
+        vec![512],
+        0.1,
+        0.1,
+        DROPOUT_MULTIPLY,
     )));
 
     net.add_layer(Box::from(DenseLayer::new(
         512, //Input size
         10, //Output size
-        0.1, //Learning rate
+        0.05, //Learning rate
         0.01, //Lambda
         RELU, //Activation Function
     )));
@@ -247,7 +254,15 @@ fn test_on_mnist() {
         let mut avg_training_error = 0.;
         for batch in 0..TRAINING_SIZE/BATCH_SIZE {
             let batch_range = batch*BATCH_SIZE..(batch+1)*BATCH_SIZE;
-            let training_error = net.backpropagate(&train_images.slice(s![batch_range.clone(), .., .., ..]).to_owned().into_dyn(), &train_labels.slice(s![batch_range, ..]).to_owned().into_dyn(), 10);
+            let training_error = net.backpropagate(
+                &train_images.slice(s![batch_range.clone(), .., .., ..])
+                    .to_owned()
+                    .into_dyn(),
+                &train_labels.slice(s![batch_range, ..])
+                    .to_owned()
+                    .into_dyn(),
+                10
+            );
             avg_training_error += training_error;
         }
         avg_training_error /= TRAINING_SIZE as f32/BATCH_SIZE as f32;
