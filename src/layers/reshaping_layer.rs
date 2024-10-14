@@ -73,7 +73,7 @@ impl Layer for ReshapingLayer {
         dl_da: &ArrayD<f32>
     ) -> ArrayD<f32> {
         let batch_size = dl_da.dim()[0];
-        let mut input_vec = self.output_shape.clone();
+        let mut input_vec = self.input_shape.clone();
         input_vec.insert(0, batch_size);
         let input_shape = IxDyn(&input_vec);
         dl_da.to_shape(input_shape).unwrap().to_owned()

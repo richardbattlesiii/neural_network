@@ -5,3 +5,4 @@ pub mod softmax_layer;
 pub mod reshaping_layer;
 pub mod dropout_layer;
 pub mod pooling_layer;
+pub mod activation_layer;

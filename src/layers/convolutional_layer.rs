@@ -20,7 +20,6 @@ pub struct ConvolutionalLayer {
 
     learning_rate:f32,
     lambda:f32,
-    activation_function:u8,
     convolution_method:u8,
 
     filters:Array4<f32>,
@@ -49,7 +48,6 @@ impl ConvolutionalLayer {
         filter_size: usize,
         learning_rate: f32,
         lambda: f32,
-        activation_function: u8,
         convolution_method: u8,
     ) -> ConvolutionalLayer {
         ConvolutionalLayer {
@@ -58,7 +56,6 @@ impl ConvolutionalLayer {
 
             learning_rate,
             lambda,
-            activation_function,
             convolution_method,
             
             filters: Array4::zeros((num_filters, input_channels, filter_size, filter_size)),
@@ -158,7 +155,6 @@ impl Layer for ConvolutionalLayer {
         let mut bias_gradients: Array1<f32> = Array1::zeros(self.num_filters);
         //dLoss/dInputs
         let mut output: Array4<f32> = Array4::zeros((num_samples, self.input_channels, self.image_size, self.image_size));
-        //println!("Filters: {:?}", self.filters.shape());
 
         for sample in 0..num_samples {
             let sample_output = my_output.index_axis(Axis(0), sample);
@@ -169,17 +165,13 @@ impl Layer for ConvolutionalLayer {
                 //Calculate gradient of loss with respect to the non-activated output
                 let filter = self.filters.index_axis(Axis(0), filter_num);
                 let current_output = sample_output.index_axis(Axis(0), filter_num);
-                let mut derivative = current_output.to_owned().into_dyn();
-                activation_derivative(self.activation_function, &mut derivative);
-                let derivative = derivative.to_shape((self.image_size, self.image_size)).unwrap();
 
-                let current_error = sample_error.index_axis(Axis(0), filter_num);
-                let dl_do = &current_error * &derivative;
-                bias_gradients[[filter_num]] += dl_do.sum();
+                let current_error = sample_error.index_axis(Axis(0), filter_num).to_owned();
+                bias_gradients[[filter_num]] += current_error.sum();
 
                 for channel in 0..self.input_channels {
                     let current_input = sample_input.index_axis(Axis(0), channel);
-                    let current_gradients = calculate_filter_gradients(&current_input, &dl_do, self.filter_size);
+                    let current_gradients = calculate_filter_gradients(&current_input, &current_error, self.filter_size);
                     filter_gradients.slice_mut(s![filter_num, channel, .., ..]).assign(&current_gradients);
                     
                     let current_filter = filter.index_axis(Axis(0), channel);
@@ -192,8 +184,8 @@ impl Layer for ConvolutionalLayer {
         }
         
         //L2 regularization
-        // filter_gradients.scaled_add(self.lambda, &self.filters);
-        // bias_gradients.scaled_add(self.lambda, &self.biases);
+        filter_gradients.scaled_add(self.lambda, &self.filters);
+        bias_gradients.scaled_add(self.lambda, &self.biases);
 
         //Gradient clipping
         let filter_gradients_norm = (&filter_gradients*&filter_gradients).sum().sqrt();

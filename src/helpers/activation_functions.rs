@@ -38,13 +38,13 @@ fn tanh(input: f32) -> f32 {
 
 pub fn activation_derivative(function_to_use: u8, input: &mut ArrayD<f32>) {
     for value in input.iter_mut() {
-            match function_to_use {
-                LINEAR => {} //Does nothing to the input.
-                RELU => *value = relu_derivative(*value),
-                SIGMOID => *value = sigmoid_derivative(*value),
-                TANH => *value = tanh_derivative(*value),
-                _ => panic!("Invalid activation function.")
-            }
+        match function_to_use {
+            LINEAR => {} //Does nothing to the input.
+            RELU => *value = relu_derivative(*value),
+            SIGMOID => *value = sigmoid_derivative(*value),
+            TANH => *value = tanh_derivative(*value),
+            _ => panic!("Invalid activation function.")
+        }
     }
 }
 

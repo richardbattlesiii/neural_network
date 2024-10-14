@@ -13,7 +13,6 @@ pub struct DenseLayer {
     output_size:usize,
 
     learning_rate:f32,
-    activation_function:u8,
     lambda:f32,
 
     weights:Array2<f32>,
@@ -33,7 +32,7 @@ pub struct DenseLayer {
 
 impl Layer for DenseLayer {
     fn initialize(&mut self){
-        let xavier = f32::sqrt(6.0/((self.input_size + self.output_size) as f32 ));
+        let xavier = f32::sqrt(6.0/((self.input_size + self.output_size) as f32));
         self.weights = Array2::random((self.input_size, self.output_size), Uniform::new(-xavier, xavier));
         self.biases = Array1::random(self.output_size, Uniform::new(-0.01, 0.01));
     }
@@ -45,7 +44,6 @@ impl Layer for DenseLayer {
         let mut product = input.dot(&self.weights).into_dyn();
         let biases_reshaped = self.biases.clone().insert_axis(ndarray::Axis(0));
         product += &biases_reshaped;
-        activate(self.activation_function, &mut product);
         // println!("Output:\n{}", product);
         product
     }
@@ -98,46 +96,40 @@ impl Layer for DenseLayer {
         self.num_batches = 0;
     }
 
-    fn accumulate_gradients(
+    fn accumulate_gradients( 
         &mut self,
         layer_input_dynamic: &ArrayD<f32>,
         layer_output_dynamic: &ArrayD<f32>,
         dl_da_dynamic: &ArrayD<f32>,
     ) -> ArrayD<f32> {
         self.num_batches += 1;
-
-        let batch_size = layer_input_dynamic.dim()[0];
-        let input = layer_input_dynamic.to_shape((batch_size, self.input_size)).unwrap();
-        let my_output = layer_output_dynamic.to_shape((batch_size, self.output_size)).unwrap();
-        let error = dl_da_dynamic.to_shape((batch_size, self.output_size)).unwrap();
-
-        let mut derivative = layer_output_dynamic.to_owned();
-        activation_derivative(self.activation_function, &mut derivative);
-        let derivative = derivative.to_shape((batch_size, self.output_size)).unwrap();
-        let dl_da = error;
-        let grad = &dl_da * &derivative;
-
-        let output = grad.dot(&self.weights.t());
-        
-        let mut weight_gradients = input.t().dot(&grad);
-        let mut bias_gradients = grad.sum_axis(ndarray::Axis(0));
-
-        //Gradient clipping
-        const CLIP_THRESHOLD: f32 = 2.0;
-        weight_gradients.mapv_inplace(|x| x.clamp(-CLIP_THRESHOLD, CLIP_THRESHOLD));
-        bias_gradients.mapv_inplace(|x| x.clamp(-CLIP_THRESHOLD, CLIP_THRESHOLD));
-
-        //L2 Regularization... it's that easy!
-        weight_gradients.scaled_add(self.lambda, &self.weights);
-        bias_gradients.scaled_add(self.lambda, &self.biases);
     
-        let coefficient = 1.0 / input.nrows() as f32;
-
-        self.weight_gradients.scaled_add(coefficient, &weight_gradients);
-        self.bias_gradients.scaled_add(coefficient, &bias_gradients);
-
-        output.into_dyn()
+        let batch_size = layer_input_dynamic.dim()[0];
+        
+        let input = layer_input_dynamic.to_shape((batch_size, self.input_size)).unwrap();
+        let error = dl_da_dynamic.to_shape((batch_size, self.output_size)).unwrap();
+    
+        let weight_gradients = input.t().dot(&error);
+        let bias_gradients = error.sum_axis(ndarray::Axis(0));
+    
+        const CLIP_THRESHOLD: f32 = 2.0;
+        let mut weight_gradients_clipped = weight_gradients.clone();
+        let mut bias_gradients_clipped = bias_gradients.clone();
+        weight_gradients_clipped.mapv_inplace(|x| x.clamp(-CLIP_THRESHOLD, CLIP_THRESHOLD));
+        bias_gradients_clipped.mapv_inplace(|x| x.clamp(-CLIP_THRESHOLD, CLIP_THRESHOLD));
+    
+        // L2 regularization
+        weight_gradients_clipped.scaled_add(self.lambda, &self.weights);
+        bias_gradients_clipped.scaled_add(self.lambda, &self.biases);
+    
+        let coefficient = 1.0 / batch_size as f32;
+        self.weight_gradients.scaled_add(coefficient, &weight_gradients_clipped);
+        self.bias_gradients.scaled_add(coefficient, &bias_gradients_clipped);
+    
+        let output_error = error.dot(&self.weights.t());
+        output_error.into_dyn()
     }
+    
     
     fn apply_accumulated_gradients(&mut self) {
         self.timestep += 1;
@@ -182,14 +174,12 @@ impl DenseLayer {
         output_size: usize,
         learning_rate: f32,
         lambda: f32,
-        activation_function: u8,
     ) -> DenseLayer {
         DenseLayer {
             input_size,
             output_size,
 
             learning_rate,
-            activation_function,
             lambda,
 
             weights: Array2::zeros((input_size, output_size)),
@@ -219,6 +209,7 @@ impl DenseLayer {
     pub fn get_lambda(&self) -> f32 {
         self.lambda
     }
+    
     pub fn set_weights(&mut self, weights: &ArrayView2<f32>) {
         self.weights = weights.to_owned();
     }

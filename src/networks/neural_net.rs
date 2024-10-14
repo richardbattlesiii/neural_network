@@ -90,6 +90,10 @@ impl NeuralNet {
             }
             let current_input = &outputs[layer_num];
             let current_output = &outputs[layer_num+1];
+            if debug {
+                println!("Input: {:?}", current_input.shape());
+                println!("Output: {:?}", current_output.shape());
+            }
             error = self.layers[layer_num].backpropagate(current_input, current_output, &error)
         }
 

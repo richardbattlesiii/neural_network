@@ -11,6 +11,7 @@ pub mod environments;
 pub mod prelude;
 
 use helpers::{distribution_functions::*, matrix_operations::invert};
+use layers::activation_layer::ActivationLayer;
 use mnist::Mnist;
 use networks::{dqn, neural_net::{self, calculate_bce_loss, NeuralNet}};
 use num::traits::ops::inv;
@@ -165,22 +166,62 @@ const NUM_PRINTS_PER_GENERATION:u32 = 10;
 //both with 2000 epochs, 4x4 grid I think
 
 fn main() {
-    // dqn::train_dqn_on_cart_pole();
+    //dqn::train_dqn_on_cart_pole();
     //test_autotuning_with_himmelblau();
     //make_generic_net();
-    test_on_mnist();
+    // test_on_mnist();
 
     // let start = Instant::now();
     // flow_ai::generate_puzzles_3d(1000, NUM_THREADS);
     // println!("Finished regular in {:8.6}s.", start.elapsed().as_secs_f32());
     //make_regular_dense_net(ROSE_DECAY_LEARNING_RATE, (0.0, 0.0, 0.0));
-    //xor();
+    xor();
     //make_convolutional_net();
     //genetic_algorithm();
     //gamer_net::make_gamer_net();
 }
 
-const TRAINING_SIZE: usize = 60000;
+fn xor() {
+    let mut nn = NeuralNet::new();
+    let sizes = vec![2, 4, 2];
+    let num_layers = sizes.len() - 1;
+    for i in 0..num_layers {
+        nn.add_layer(Box::from(DenseLayer::new(
+            sizes[i],
+            sizes[i+1],
+            0.1,
+            0.01,
+        )));
+        
+        nn.add_layer(Box::from(ActivationLayer::new(
+            &vec![sizes[i+1]],
+            RELU,
+        )));
+    }
+
+    nn.add_layer(Box::from(SoftmaxLayer::new(
+        1,
+        sizes[num_layers]
+    )));
+
+
+    nn.initialize();
+
+    let input = Array2::from_shape_vec((4,2), vec![0.,0., 0.,1., 1.,0., 1.,1.]).unwrap().into_dyn();
+    let labels = Array2::from_shape_vec((4,2), vec![0.,1., 1.,0., 1.,0., 0.,1.]).unwrap().into_dyn();
+
+    println!("Input:\n{}", input);
+    println!("Output:\n{}", nn.predict(&input));
+
+    for epoch in 0..100_000 {
+        nn.backpropagate(&input, &labels, 2);
+    }
+
+    println!("Input:\n{}", input);
+    println!("Output:\n{}", nn.predict(&input));
+}
+
+const TRAINING_SIZE: usize = 60_000;
 const BATCH_SIZE: usize = 1000;
 const TESTING_SIZE: usize = 10000;
 ///Trains a neural net to classify handwritten digits.
@@ -208,41 +249,49 @@ fn test_on_mnist() {
 
     let mut net = NeuralNet::new();
 
-    let filters = 16;
-    net.add_layer(Box::from(ConvolutionalLayer::new(
-        28, //Input size
-        1, //Input channels
-        filters, //Filters
-        5, //Kernel size
-        0.05, //Learning rate
-        0.01, //Lambda
-        RELU, //Activation function
-        CONVOLUTION_BASIC //Convolution type
-    )));
+    let filters = vec![1, 16, 16];
+    let kernel_sizes = vec![7, 7];
+    let num_convolutional_layers = kernel_sizes.len();
+    for i in 0..kernel_sizes.len() {
+        net.add_layer(Box::from(ConvolutionalLayer::new(
+            28, //Input size
+            filters[i], //Input channels
+            filters[i+1], //Filters
+            kernel_sizes[i], //Kernel size
+            0.05, //Learning rate
+            0.01, //Lambda
+            CONVOLUTION_BASIC //Convolution type
+        )));
+    
+        net.add_layer(Box::from(ActivationLayer::new(
+            &vec![filters[i+1], 28, 28],
+            RELU,
+        )));
+    }
 
-    net.add_layer(Box::from(ReshapingLayer::new(vec![filters, 28, 28], vec![filters*28*28])));
+    net.add_layer(Box::from(ReshapingLayer::new(vec![filters[num_convolutional_layers], 28, 28], vec![filters[num_convolutional_layers]*28*28])));
+
+    let dense_sizes: Vec<usize> = vec![filters[num_convolutional_layers]*28*28, 2048, 1024, 512, 10];
+
+    for i in 0..dense_sizes.len()-2 {
+        net.add_layer(Box::from(DenseLayer::new(
+            dense_sizes[i], //Input size
+            dense_sizes[i+1], //Output size
+            0.1, //Learning rate
+            0.05, //Lambda
+        )));
+
+        net.add_layer(Box::from(ActivationLayer::new(
+            &vec![dense_sizes[i+1]],
+            RELU
+        )));
+    }
 
     net.add_layer(Box::from(DenseLayer::new(
-        filters*28*28, //Input size
-        512, //Output size
+        dense_sizes[dense_sizes.len()-2], //Input size
+        dense_sizes[dense_sizes.len()-1], //Output size
         0.05, //Learning rate
         0.01, //Lambda
-        RELU, //Activation Function
-    )));
-
-    net.add_layer(Box::from(DropoutLayer::new(
-        vec![512],
-        0.1,
-        0.1,
-        DROPOUT_MULTIPLY,
-    )));
-
-    net.add_layer(Box::from(DenseLayer::new(
-        512, //Input size
-        10, //Output size
-        0.05, //Learning rate
-        0.01, //Lambda
-        RELU, //Activation Function
     )));
 
     net.add_layer(Box::from(SoftmaxLayer::new(1, 10)));
@@ -253,6 +302,7 @@ fn test_on_mnist() {
     for epoch in 0..100_000_000 {
         let mut avg_training_error = 0.;
         for batch in 0..TRAINING_SIZE/BATCH_SIZE {
+            println!("Batch {batch}...");
             let batch_range = batch*BATCH_SIZE..(batch+1)*BATCH_SIZE;
             let training_error = net.backpropagate(
                 &train_images.slice(s![batch_range.clone(), .., .., ..])
@@ -543,7 +593,6 @@ fn make_generic_net() {
             sizes[i],
             0.1,
             LAMBDA,
-            RELU,
             CONVOLUTION_BASIC
         )))
     }
@@ -561,7 +610,6 @@ fn make_generic_net() {
             dense_sizes[i+1],
             0.1,
             LAMBDA,
-            RELU
         )));
     }
 

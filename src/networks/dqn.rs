@@ -89,17 +89,15 @@ impl DQN {
         nn.add_layer(Box::new(DenseLayer::new(
             num_inputs, //input size
             16, // output size
-            0.001, // learning_rate
+            0.01, // learning_rate
             0.1,   // lambda (regularization term)
-            1,     // ReLU activation
         )));
 
         nn.add_layer(Box::new(DenseLayer::new(
             16, // input size
             num_actions, // output size
-            0.001, // learning rate
+            0.01, // learning rate
             0.1, //lambda (regularization term)
-            0, // Linear activation
         )));
 
         nn.initialize();

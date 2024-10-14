@@ -35,14 +35,13 @@ pub fn make_gamer_net() {
     let convolutional_layer_sizes = &[3, 3];
     for i in 0..num_conv_layers {
         net.add_layer(Box::from(ConvolutionalLayer::new(
-                HEIGHT,
-                num_channels[i],
-                num_channels[i+1],
-                convolutional_layer_sizes[i],
-                LEARNING_RATE,
-                LAMBDA,
-                RELU,
-                CONVOLUTION_BASIC)));
+            HEIGHT,
+            num_channels[i],
+            num_channels[i+1],
+            convolutional_layer_sizes[i],
+            LEARNING_RATE,
+            LAMBDA,
+            CONVOLUTION_BASIC)));
     }
 
     //Reshaping layer
@@ -62,7 +61,6 @@ pub fn make_gamer_net() {
             dense_layer_sizes[i+1],
             LEARNING_RATE,
             LAMBDA,
-            RELU
         )));
     }
 
@@ -72,7 +70,6 @@ pub fn make_gamer_net() {
         dense_layer_sizes[num_dense_layers],
         LEARNING_RATE,
         LAMBDA,
-        RELU
     )));
 
     // net.add_layer(Box::from(SoftmaxLayer::new(
